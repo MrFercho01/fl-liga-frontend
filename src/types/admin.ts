@@ -34,6 +34,7 @@ export interface CreateLeaguePayload {
   season: number
   slogan?: string
   themeColor?: string
+  backgroundImageUrl?: string
   logoUrl?: string
   categories: Array<{
     name: string
@@ -41,6 +42,7 @@ export interface CreateLeaguePayload {
     maxAge: number | null
     rules: {
       playersOnField: number
+      maxRegisteredPlayers?: number
       matchMinutes: number
       breakMinutes: number
       allowDraws: boolean

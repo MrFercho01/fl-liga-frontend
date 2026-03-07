@@ -1,5 +1,6 @@
 export interface RuleSet {
   playersOnField: number
+  maxRegisteredPlayers?: number
   matchMinutes: number
   breakMinutes: number
   allowDraws?: boolean
@@ -41,6 +42,7 @@ export interface League {
   season: number
   slogan?: string
   themeColor?: string
+  backgroundImageUrl?: string
   active: boolean
   ownerUserId: string
   logoUrl?: string

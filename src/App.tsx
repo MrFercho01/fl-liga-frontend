@@ -38,6 +38,7 @@ interface CompetitionRulesDraft {
   pointsDraw: number
   pointsLoss: number
   courtsCount: number
+  maxRegisteredPlayers: number
   resolveDrawByPenalties: boolean
   playoffQualifiedTeams: number
   finalStageRoundOf16Enabled: boolean
@@ -366,6 +367,7 @@ function App() {
     pointsDraw: 1,
     pointsLoss: 0,
     courtsCount: 1,
+    maxRegisteredPlayers: 25,
     resolveDrawByPenalties: false,
     playoffQualifiedTeams: 8,
     finalStageRoundOf16Enabled: false,
@@ -559,6 +561,7 @@ function App() {
         pointsDraw: selectedCategoryRules.pointsDraw ?? 1,
         pointsLoss: selectedCategoryRules.pointsLoss ?? 0,
         courtsCount: selectedCategoryRules.courtsCount ?? 1,
+        maxRegisteredPlayers: selectedCategoryRules.maxRegisteredPlayers ?? 25,
         resolveDrawByPenalties: selectedCategoryRules.resolveDrawByPenalties ?? false,
         playoffQualifiedTeams: selectedCategoryRules.playoffQualifiedTeams ?? 8,
         finalStageRoundOf16Enabled: selectedCategoryRules.finalStageRoundOf16Enabled ?? false,
@@ -4031,6 +4034,23 @@ function App() {
                         setCompetitionRulesDraft((current) => ({
                           ...current,
                           courtsCount: Math.max(1, Number(event.target.value) || 1),
+                        }))
+                      }
+                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white"
+                    />
+                  </label>
+
+                  <label className="text-xs text-slate-300">
+                    Máximo jugadoras inscritas
+                    <input
+                      type="number"
+                      min={5}
+                      max={60}
+                      value={competitionRulesDraft.maxRegisteredPlayers}
+                      onChange={(event) =>
+                        setCompetitionRulesDraft((current) => ({
+                          ...current,
+                          maxRegisteredPlayers: Math.max(5, Number(event.target.value) || 5),
                         }))
                       }
                       className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white"

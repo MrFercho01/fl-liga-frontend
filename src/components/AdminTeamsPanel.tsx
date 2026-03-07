@@ -26,6 +26,7 @@ interface LeagueEditDraft {
   season: number
   slogan: string
   themeColor: string
+  backgroundImageUrl: string
   logoUrl: string
 }
 
@@ -224,6 +225,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [newLeagueSeason, setNewLeagueSeason] = useState(2026)
   const [newLeagueSlogan, setNewLeagueSlogan] = useState('')
   const [newLeagueThemeColor, setNewLeagueThemeColor] = useState('')
+  const [newLeagueBackgroundImageUrl, setNewLeagueBackgroundImageUrl] = useState('')
   const [newLeagueLogoUrl, setNewLeagueLogoUrl] = useState('')
   const [newLeagueCategoryKey, setNewLeagueCategoryKey] = useState(categoryTemplates[0]?.key ?? 'libre')
   const [teamDirectorDraft, setTeamDirectorDraft] = useState<TechnicalPersonDraft>({ name: '', photoUrl: '' })
@@ -240,6 +242,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     assistantPhotoUrl: string
   }>>({})
   const [playerEditById, setPlayerEditById] = useState<Record<string, PlayerDraft>>({})
+  const [playerReplacementByTeam, setPlayerReplacementByTeam] = useState<Record<string, { enabled: boolean; replacePlayerId: string }>>({})
 
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
@@ -279,6 +282,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
   const activeCategoryRules = categoryOptions.find((category) => category.id === activeCategoryId)?.rules
   const activeCategoryCourtsCount = Math.max(1, activeCategoryRules?.courtsCount ?? 1)
+  const activeCategoryMaxRegisteredPlayers = Math.max(5, activeCategoryRules?.maxRegisteredPlayers ?? 25)
 
   const selectedTeam = useMemo(() => {
     if (selectedTeamId) {
@@ -418,6 +422,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       season: newLeagueSeason,
       slogan: newLeagueSlogan.trim() || undefined,
       themeColor: newLeagueThemeColor.trim() || undefined,
+      backgroundImageUrl: newLeagueBackgroundImageUrl || undefined,
       logoUrl: newLeagueLogoUrl || undefined,
       categories: [
         {
@@ -426,6 +431,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
           maxAge: categoryTemplate.maxAge,
           rules: {
             playersOnField: 11,
+            maxRegisteredPlayers: 25,
             matchMinutes: categoryTemplate.matchMinutes,
             breakMinutes: 15,
             allowDraws: true,
@@ -444,6 +450,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     }
 
     setNewLeagueName('')
+    setNewLeagueBackgroundImageUrl('')
     setNewLeagueLogoUrl('')
     setNewLeagueSeason(2026)
     setNewLeagueSlogan('')
@@ -1149,6 +1156,25 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     }
 
     const draft = playerDraftByTeam[teamId] ?? defaultPlayerDraft
+    const replacementConfig = playerReplacementByTeam[teamId] ?? { enabled: false, replacePlayerId: '' }
+    const targetTeam = teams.find((item) => item.id === teamId)
+
+    if (!targetTeam) {
+      showMessage('Equipo no encontrado para registrar jugadora')
+      return
+    }
+
+    const atCapacity = targetTeam.players.length >= activeCategoryMaxRegisteredPlayers
+    if (atCapacity && !replacementConfig.enabled) {
+      showMessage(`Cupo completo (${activeCategoryMaxRegisteredPlayers}). Activa reemplazo por lesión o elimina una jugadora.`)
+      return
+    }
+
+    if (replacementConfig.enabled && !replacementConfig.replacePlayerId) {
+      showMessage('Selecciona la jugadora lesionada que será reemplazada')
+      return
+    }
+
     if (!draft.name.trim() || !draft.nickname.trim()) {
       showMessage('Nombre y apodo son obligatorios')
       return
@@ -1161,6 +1187,8 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       number: draft.number,
       position: normalizePosition(draft.position),
       photoUrl: draft.photoUrl || undefined,
+      replacePlayerId: replacementConfig.enabled ? replacementConfig.replacePlayerId : undefined,
+      replacementReason: replacementConfig.enabled ? 'injury' : undefined,
     })
 
     if (!response.ok) {
@@ -1172,7 +1200,11 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       ...current,
       [teamId]: { ...defaultPlayerDraft, number: (current[teamId]?.number ?? 1) + 1 },
     }))
-    showMessage('Jugador agregado')
+    setPlayerReplacementByTeam((current) => ({
+      ...current,
+      [teamId]: { enabled: false, replacePlayerId: '' },
+    }))
+    showMessage(replacementConfig.enabled ? 'Reemplazo por lesión registrado' : 'Jugador agregado')
     await loadTeams()
   }
 
@@ -1298,6 +1330,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
         season: current[league.id]?.season ?? league.season,
         slogan: current[league.id]?.slogan ?? league.slogan ?? '',
         themeColor: current[league.id]?.themeColor ?? league.themeColor ?? '',
+        backgroundImageUrl: current[league.id]?.backgroundImageUrl ?? league.backgroundImageUrl ?? '',
         logoUrl: current[league.id]?.logoUrl ?? league.logoUrl ?? '',
         ...patch,
       },
@@ -1315,6 +1348,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       season: draft.season,
       slogan: draft.slogan.trim() || '',
       themeColor: draft.themeColor.trim() || undefined,
+      backgroundImageUrl: draft.backgroundImageUrl || undefined,
       logoUrl: draft.logoUrl || undefined,
     })
 
@@ -1453,13 +1487,21 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
         <div className="mt-4 rounded-xl border border-white/10 bg-slate-900/60 p-4">
           <p className="text-sm font-semibold text-white">Crear liga</p>
           <p className="mt-1 text-xs text-slate-400">La nueva liga se crea con dueño Super Admin.</p>
-          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-8">
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-9">
             <input value={newLeagueName} onChange={(event) => setNewLeagueName(event.target.value)} placeholder="Nombre de la liga" className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white" />
             <input value={newLeagueCountry} onChange={(event) => setNewLeagueCountry(event.target.value)} placeholder="País" className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white" />
             <input type="number" min={2020} max={2100} value={newLeagueSeason} onChange={(event) => setNewLeagueSeason(Number(event.target.value) || 2026)} placeholder="Temporada" className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white" />
             <input value={newLeagueSlogan} onChange={(event) => setNewLeagueSlogan(event.target.value)} placeholder="Slogan (opcional)" className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white" />
             <label className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-slate-200">Color fondo (opcional)
               <input type="color" value={newLeagueThemeColor || '#020617'} onChange={(event) => setNewLeagueThemeColor(event.target.value)} className="mt-1 block h-8 w-full" />
+            </label>
+            <label className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-slate-200">
+              Imagen de fondo (opcional)
+              <input type="file" accept="image/*" className="mt-1 block w-full text-xs" onChange={async (event) => {
+                const file = event.target.files?.[0]
+                if (!file) return
+                setNewLeagueBackgroundImageUrl(await toDataUrl(file))
+              }} />
             </label>
             <select value={newLeagueCategoryKey} onChange={(event) => setNewLeagueCategoryKey(event.target.value)} className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white">
               {categoryTemplates.map((category) => (
@@ -1483,6 +1525,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                 Eliminar liga seleccionada
               </button>
             )}
+            {newLeagueBackgroundImageUrl && <img src={newLeagueBackgroundImageUrl} alt="Fondo liga" className="h-12 w-20 rounded border border-white/20 object-cover" />}
             {newLeagueLogoUrl && <img src={newLeagueLogoUrl} alt="Logo liga" className="h-12 w-12 rounded border border-white/20 bg-white object-contain p-1" />}
           </div>
 
@@ -1492,13 +1535,20 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
               {isReadOnlySeason && (
                 <p className="mb-2 text-[11px] text-amber-200">Temporada histórica: solo lectura.</p>
               )}
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-6">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-7">
                 <input disabled={isReadOnlySeason} value={leagueEditById[selectedLeague.id]?.name ?? selectedLeague.name} onChange={(event) => updateLeagueEdit(selectedLeague, { name: event.target.value })} className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-60" />
                 <input disabled={isReadOnlySeason} value={leagueEditById[selectedLeague.id]?.country ?? selectedLeague.country} onChange={(event) => updateLeagueEdit(selectedLeague, { country: event.target.value })} className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-60" />
                 <input disabled={isReadOnlySeason} type="number" min={2020} max={2100} value={leagueEditById[selectedLeague.id]?.season ?? selectedLeague.season} onChange={(event) => updateLeagueEdit(selectedLeague, { season: Number(event.target.value) || selectedLeague.season })} className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-60" />
                 <input disabled={isReadOnlySeason} value={leagueEditById[selectedLeague.id]?.slogan ?? selectedLeague.slogan ?? ''} onChange={(event) => updateLeagueEdit(selectedLeague, { slogan: event.target.value })} placeholder="Slogan" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-60" />
                 <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">Color fondo
                   <input disabled={isReadOnlySeason} type="color" value={leagueEditById[selectedLeague.id]?.themeColor ?? selectedLeague.themeColor ?? '#020617'} onChange={(event) => updateLeagueEdit(selectedLeague, { themeColor: event.target.value })} className="mt-1 block h-7 w-full disabled:opacity-60" />
+                </label>
+                <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">Imagen fondo
+                  <input disabled={isReadOnlySeason} type="file" accept="image/*" className="mt-1 block w-full disabled:opacity-60" onChange={async (event) => {
+                    const file = event.target.files?.[0]
+                    if (!file) return
+                    updateLeagueEdit(selectedLeague, { backgroundImageUrl: await toDataUrl(file) })
+                  }} />
                 </label>
                 <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">Logo
                   <input disabled={isReadOnlySeason} type="file" accept="image/*" className="mt-1 block w-full disabled:opacity-60" onChange={async (event) => {
@@ -1508,6 +1558,13 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   }} />
                 </label>
               </div>
+              {(leagueEditById[selectedLeague.id]?.backgroundImageUrl ?? selectedLeague.backgroundImageUrl) && (
+                <img
+                  src={leagueEditById[selectedLeague.id]?.backgroundImageUrl ?? selectedLeague.backgroundImageUrl}
+                  alt="Fondo actual"
+                  className="mt-2 h-16 w-full rounded border border-white/10 object-cover"
+                />
+              )}
               <button type="button" disabled={isReadOnlySeason} onClick={() => void saveLeagueEdit(selectedLeague)} className="mt-2 rounded border border-primary-300/40 bg-primary-500/20 px-2 py-1 text-xs font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60">
                 Guardar cambios rápidos
               </button>
@@ -1723,6 +1780,9 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   <p className="mt-2 text-xs text-slate-400">
                     Equipo: {selectedTeam.name} · Temporada {selectedLeague.season} · identifica jugadores por dorsal y edad.
                   </p>
+                  <p className="mt-1 text-xs text-cyan-200">
+                    Cupo categoría: {selectedTeam.players.length}/{activeCategoryMaxRegisteredPlayers} jugadoras registradas
+                  </p>
                   <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                     <input
                       value={playerSearch}
@@ -1786,7 +1846,53 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                       className="mt-2 h-10 w-10 rounded-full border border-white/20 object-cover"
                     />
                   )}
-                  <button type="button" disabled={isReadOnlySeason} onClick={() => void handleAddPlayer(selectedTeam.id)} className="mt-2 rounded border border-primary-300/40 bg-primary-500/20 px-3 py-1 text-xs font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60">Agregar jugador</button>
+                  <div className="mt-2 grid grid-cols-1 gap-2 rounded border border-white/10 bg-slate-900/50 p-2 md:grid-cols-[auto_1fr]">
+                    <label className="flex items-center gap-2 text-xs text-amber-100">
+                      <input
+                        type="checkbox"
+                        checked={playerReplacementByTeam[selectedTeam.id]?.enabled ?? false}
+                        onChange={(event) =>
+                          setPlayerReplacementByTeam((current) => ({
+                            ...current,
+                            [selectedTeam.id]: {
+                              enabled: event.target.checked,
+                              replacePlayerId: event.target.checked ? (current[selectedTeam.id]?.replacePlayerId ?? '') : '',
+                            },
+                          }))
+                        }
+                      />
+                      Reemplazo por lesión
+                    </label>
+                    <select
+                      disabled={!(playerReplacementByTeam[selectedTeam.id]?.enabled ?? false)}
+                      value={playerReplacementByTeam[selectedTeam.id]?.replacePlayerId ?? ''}
+                      onChange={(event) =>
+                        setPlayerReplacementByTeam((current) => ({
+                          ...current,
+                          [selectedTeam.id]: {
+                            enabled: current[selectedTeam.id]?.enabled ?? true,
+                            replacePlayerId: event.target.value,
+                          },
+                        }))
+                      }
+                      className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <option value="">Selecciona jugadora lesionada</option>
+                      {selectedTeam.players.map((player) => (
+                        <option key={`replace-${player.id}`} value={player.id}>
+                          {player.name} · #{player.number}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isReadOnlySeason}
+                    onClick={() => void handleAddPlayer(selectedTeam.id)}
+                    className="mt-2 rounded border border-primary-300/40 bg-primary-500/20 px-3 py-1 text-xs font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {(playerReplacementByTeam[selectedTeam.id]?.enabled ?? false) ? 'Reemplazar jugadora' : 'Agregar jugador'}
+                  </button>
 
                   <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
                     {playerPagination.pageItems.map((player) => {

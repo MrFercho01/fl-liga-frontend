@@ -409,6 +409,7 @@ export const apiService = {
         season: number
         slogan?: string
         themeColor?: string
+        backgroundImageUrl?: string
         logoUrl?: string
         categories: Array<{ id: string; name: string }>
       }>
@@ -430,6 +431,7 @@ export const apiService = {
           season: number
           slogan?: string
           themeColor?: string
+          backgroundImageUrl?: string
           logoUrl?: string
           categories: Array<{ id: string; name: string }>
         }>
@@ -567,6 +569,7 @@ export const apiService = {
         season: number
         slogan?: string
         themeColor?: string
+        backgroundImageUrl?: string
         logoUrl?: string
       }
       category: {
@@ -630,6 +633,7 @@ export const apiService = {
             season: number
             slogan?: string
             themeColor?: string
+            backgroundImageUrl?: string
             logoUrl?: string
           }
           category: {
@@ -823,7 +827,16 @@ export const apiService = {
 
   async addPlayerToTeam(
     teamId: string,
-    player: { name: string; nickname: string; age: number; number: number; position: string; photoUrl?: string },
+    player: {
+      name: string
+      nickname: string
+      age: number
+      number: number
+      position: string
+      photoUrl?: string
+      replacePlayerId?: string
+      replacementReason?: 'injury'
+    },
   ): Promise<ApiResponse<RegisteredTeam>> {
     try {
       const response = await apiFetch(`${apiBaseUrl}/api/admin/teams/${teamId}/players`, {
@@ -905,6 +918,7 @@ export const apiService = {
       season?: number
       slogan?: string
       themeColor?: string
+      backgroundImageUrl?: string
       logoUrl?: string
       categories?: CreateLeaguePayload['categories']
     },
@@ -933,6 +947,7 @@ export const apiService = {
     categoryId: string,
     rules: {
       playersOnField?: number
+      maxRegisteredPlayers?: number
       matchMinutes?: number
       breakMinutes?: number
       courtsCount?: number

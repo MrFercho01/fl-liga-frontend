@@ -13,6 +13,7 @@ interface PublicLeagueSummary {
   season: number
   slogan?: string
   themeColor?: string
+  backgroundImageUrl?: string
   logoUrl?: string
   categories: Array<{ id: string; name: string }>
 }
@@ -50,6 +51,7 @@ interface PublicFixturePayload {
     season: number
     slogan?: string
     themeColor?: string
+    backgroundImageUrl?: string
     logoUrl?: string
   }
   category: { id: string; name: string }
@@ -1750,11 +1752,23 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
 
   const backgroundStyle = useMemo(() => {
     const selectedColor = fixturePayload?.league.themeColor ?? selectedLeague?.themeColor
-    if (!selectedColor) return undefined
+    const selectedBackgroundImage = fixturePayload?.league.backgroundImageUrl ?? selectedLeague?.backgroundImageUrl
+
+    if (!selectedColor && !selectedBackgroundImage) return undefined
+
+    if (selectedBackgroundImage) {
+      return {
+        backgroundImage: `${selectedColor ? `linear-gradient(to bottom, ${selectedColor}D9 0%, #0f172ad0 45%, #020617f2 100%), ` : ''}url(${selectedBackgroundImage})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed',
+      } as const
+    }
+
     return {
       backgroundImage: `linear-gradient(to bottom, ${selectedColor} 0%, #0f172a 40%, #020617 100%)`,
     } as const
-  }, [fixturePayload?.league.themeColor, selectedLeague?.themeColor])
+  }, [fixturePayload?.league.backgroundImageUrl, fixturePayload?.league.themeColor, selectedLeague?.backgroundImageUrl, selectedLeague?.themeColor])
 
   const isMatchScreen = Boolean(selectedMatch)
 
