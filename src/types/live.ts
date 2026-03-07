@@ -19,14 +19,40 @@ export interface LiveTeamStats {
 export interface LiveTeam {
   id: string
   name: string
+  technicalStaff?: {
+    director?: {
+      name: string
+      photoUrl?: string
+    }
+    assistant?: {
+      name: string
+      photoUrl?: string
+    }
+  }
   players: LivePlayer[]
   starters: string[]
   substitutes: string[]
   formationKey?: string
   redCarded: string[]
+  staffDiscipline: {
+    director: {
+      name?: string
+      yellows: number
+      reds: number
+      sentOff: boolean
+    }
+    assistant: {
+      name?: string
+      yellows: number
+      reds: number
+      sentOff: boolean
+    }
+  }
   stats: LiveTeamStats
   playerStats: Record<string, LiveTeamStats>
 }
+
+export type LiveStaffRole = 'director' | 'assistant'
 
 export interface LiveSettings {
   playersOnField: number
@@ -41,7 +67,19 @@ export interface LiveEvent {
   timestamp: string
   teamId: string
   playerId: string | null
-  type: 'shot' | 'goal' | 'penalty_goal' | 'penalty_miss' | 'yellow' | 'red' | 'double_yellow' | 'assist' | 'substitution'
+  type:
+    | 'shot'
+    | 'goal'
+    | 'penalty_goal'
+    | 'penalty_miss'
+    | 'yellow'
+    | 'red'
+    | 'double_yellow'
+    | 'assist'
+    | 'substitution'
+    | 'staff_yellow'
+    | 'staff_red'
+  staffRole?: LiveStaffRole
   minute: number
   elapsedSeconds: number
   clock: string

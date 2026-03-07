@@ -81,6 +81,7 @@ interface PublicFixturePayload {
       type: LiveEvent['type']
       teamName: string
       playerName: string
+      staffRole?: 'director' | 'assistant'
     }>
     playerOfMatchId?: string
     playerOfMatchName?: string
@@ -482,7 +483,11 @@ const eventLabel: Record<LiveEvent['type'], string> = {
   double_yellow: 'Doble amarilla',
   assist: 'Asistencia',
   substitution: 'Cambio',
+  staff_yellow: 'TA CT',
+  staff_red: 'TR CT',
 }
+
+const staffRoleLabel = (role: 'director' | 'assistant') => (role === 'director' ? 'DT' : 'AT')
 
 const TeamBadge = ({ logoUrl, name }: { logoUrl?: string; name: string }) => (
   <div className="flex items-center gap-2">
@@ -501,16 +506,35 @@ const StaffCard = ({
   palette,
   director,
   assistant,
+  discipline,
 }: {
   side: 'home' | 'away'
   teamName: string
   palette: TeamPalette
   director?: { name: string; photoUrl?: string }
   assistant?: { name: string; photoUrl?: string }
+  discipline?: {
+    director?: { yellows: number; reds: number }
+    assistant?: { yellows: number; reds: number }
+  }
 }) => {
   const people = [
-    { label: 'DT', name: director?.name ?? 'Sin registrar', photoUrl: director?.photoUrl },
-    { label: 'AT', name: assistant?.name ?? 'Sin registrar', photoUrl: assistant?.photoUrl },
+    {
+      label: 'DT',
+      role: 'director' as const,
+      name: director?.name ?? 'Sin registrar',
+      photoUrl: director?.photoUrl,
+      yellows: discipline?.director?.yellows ?? 0,
+      reds: discipline?.director?.reds ?? 0,
+    },
+    {
+      label: 'AT',
+      role: 'assistant' as const,
+      name: assistant?.name ?? 'Sin registrar',
+      photoUrl: assistant?.photoUrl,
+      yellows: discipline?.assistant?.yellows ?? 0,
+      reds: discipline?.assistant?.reds ?? 0,
+    },
   ]
 
   return (
@@ -527,7 +551,17 @@ const StaffCard = ({
       <div className="space-y-2">
         {people.map((person) => (
           <div key={person.label} className={`flex items-center gap-2 ${side === 'away' ? 'justify-end' : ''}`}>
-            {side === 'away' && <p className="text-xs" style={{ color: palette.text }}>{person.label}: {person.name}</p>}
+            {side === 'away' && (
+              <p className="text-xs" style={{ color: palette.text }}>
+                {person.label}: {person.name}
+                {(person.yellows > 0 || person.reds > 0) && (
+                  <span className="ml-2 inline-flex items-center gap-1">
+                    {person.yellows > 0 && <span className="rounded bg-amber-400/90 px-1 text-[10px] font-bold text-amber-950">TA {person.yellows}</span>}
+                    {person.reds > 0 && <span className="rounded bg-rose-600/95 px-1 text-[10px] font-bold text-rose-50">TR {person.reds}</span>}
+                  </span>
+                )}
+              </p>
+            )}
             {person.photoUrl ? (
               <img
                 src={person.photoUrl}
@@ -546,7 +580,17 @@ const StaffCard = ({
                 {person.label}
               </div>
             )}
-            {side === 'home' && <p className="text-xs" style={{ color: palette.text }}>{person.label}: {person.name}</p>}
+            {side === 'home' && (
+              <p className="text-xs" style={{ color: palette.text }}>
+                {person.label}: {person.name}
+                {(person.yellows > 0 || person.reds > 0) && (
+                  <span className="ml-2 inline-flex items-center gap-1">
+                    {person.yellows > 0 && <span className="rounded bg-amber-400/90 px-1 text-[10px] font-bold text-amber-950">TA {person.yellows}</span>}
+                    {person.reds > 0 && <span className="rounded bg-rose-600/95 px-1 text-[10px] font-bold text-rose-50">TR {person.reds}</span>}
+                  </span>
+                )}
+              </p>
+            )}
           </div>
         ))}
       </div>
@@ -1547,10 +1591,14 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
         .map((event) => {
           const isHome = event.teamId === liveForSelected.homeTeam.id
           const team = isHome ? liveForSelected.homeTeam : liveForSelected.awayTeam
-          const player = event.playerId ? team.players.find((item) => item.id === event.playerId) : null
+          const actorName = event.staffRole
+            ? `${staffRoleLabel(event.staffRole)} ${team.technicalStaff?.[event.staffRole]?.name ?? 'Sin registrar'}`
+            : event.playerId
+              ? (team.players.find((item) => item.id === event.playerId)?.name ?? 'Sin jugador')
+              : 'Sin jugador'
           return {
             id: event.id,
-            label: `${event.clock} · ${eventLabel[event.type]} · ${team.name} · ${player?.name ?? 'Sin jugador'}`,
+            label: `${event.clock} · ${eventLabel[event.type]} · ${team.name} · ${actorName}`,
             isHomeTeamEvent: isHome,
             type: event.type,
           }
@@ -1644,7 +1692,16 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     const incomingEvents = events.filter((event) => incomingIds.includes(event.id))
     const hasIncomingGoal = incomingEvents.some((event) => event.type === 'goal' || event.type === 'penalty_goal')
     const hasIncomingPenaltyMiss = incomingEvents.some((event) => event.type === 'penalty_miss')
-    const highlightTypes = new Set<LiveEvent['type']>(['goal', 'penalty_goal', 'penalty_miss', 'yellow', 'red', 'double_yellow'])
+    const highlightTypes = new Set<LiveEvent['type']>([
+      'goal',
+      'penalty_goal',
+      'penalty_miss',
+      'yellow',
+      'red',
+      'double_yellow',
+      'staff_yellow',
+      'staff_red',
+    ])
     const highlightIncomingIds = incomingEvents
       .filter((event) => highlightTypes.has(event.type))
       .map((event) => event.id)
@@ -2053,10 +2110,10 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                       const awayScorersHistory = summarizeScorers(normalizedAwayName)
 
                       const redCountHome = historyEvents.filter(
-                        (event) => (event.type === 'red' || event.type === 'double_yellow') && normalizeLabel(event.teamName) === normalizedHomeName,
+                        (event) => (event.type === 'red' || event.type === 'double_yellow' || event.type === 'staff_red') && normalizeLabel(event.teamName) === normalizedHomeName,
                       ).length
                       const redCountAway = historyEvents.filter(
-                        (event) => (event.type === 'red' || event.type === 'double_yellow') && normalizeLabel(event.teamName) === normalizedAwayName,
+                        (event) => (event.type === 'red' || event.type === 'double_yellow' || event.type === 'staff_red') && normalizeLabel(event.teamName) === normalizedAwayName,
                       ).length
 
                       const statusLabel = isLive ? 'En juego' : isBreak ? 'Descanso' : isFinished ? 'Finalizado' : 'Por jugar'
@@ -2401,7 +2458,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                     )}
 
                     <div className="mt-3 rounded border border-white/10 bg-slate-950/60 px-2 py-1 text-[11px] text-slate-200">
-                      Resumen guardado: Goles {selectedMatchHistory.record.homeGoals + selectedMatchHistory.record.awayGoals} · TA {selectedMatchHistory.record.events.filter((event) => event.type === 'yellow' || event.type === 'double_yellow').length} · TR {selectedMatchHistory.record.events.filter((event) => event.type === 'red' || event.type === 'double_yellow').length}
+                      Resumen guardado: Goles {selectedMatchHistory.record.homeGoals + selectedMatchHistory.record.awayGoals} · TA {selectedMatchHistory.record.events.filter((event) => event.type === 'yellow' || event.type === 'double_yellow' || event.type === 'staff_yellow').length} · TR {selectedMatchHistory.record.events.filter((event) => event.type === 'red' || event.type === 'double_yellow' || event.type === 'staff_red').length}
                     </div>
                   </div>
                 </article>
@@ -2420,6 +2477,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                       palette={homePalette}
                       director={selectedHomeTeam?.technicalStaff?.director}
                       assistant={selectedHomeTeam?.technicalStaff?.assistant}
+                      discipline={liveForSelected?.homeTeam.staffDiscipline}
                     />
                   </div>
                   <div className="flex items-start justify-center">
@@ -2481,6 +2539,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                       palette={awayPalette}
                       director={selectedAwayTeam?.technicalStaff?.director}
                       assistant={selectedAwayTeam?.technicalStaff?.assistant}
+                      discipline={liveForSelected?.awayTeam.staffDiscipline}
                     />
                   </div>
                 </div>

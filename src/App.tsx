@@ -18,7 +18,7 @@ import type {
   UserWithLeagues,
 } from './types/admin.ts'
 import type { League } from './types/league'
-import type { LiveMatch, LivePlayer, LiveTeam } from './types/live'
+import type { LiveMatch, LivePlayer, LiveStaffRole, LiveTeam } from './types/live'
 
 const leagueTitle = 'FL League'
 const authUserStorageKey = '@fl_liga_auth_user'
@@ -254,6 +254,7 @@ function App() {
   const [liveMatch, setLiveMatch] = useState<LiveMatch | null>(null)
   const [selectedTeamId, setSelectedTeamId] = useState('')
   const [selectedPlayerId, setSelectedPlayerId] = useState('')
+  const [selectedStaffRole, setSelectedStaffRole] = useState<LiveStaffRole>('director')
   const [adminMessage, setAdminMessage] = useState('')
   const [lineupStarters, setLineupStarters] = useState<string[]>([])
   const [lineupSubstitutes, setLineupSubstitutes] = useState<string[]>([])
@@ -901,10 +902,25 @@ function App() {
       red: 'Tarjeta roja',
       double_yellow: 'Doble amarilla (TR)',
       substitution: 'Cambio',
+      staff_yellow: 'TA cuerpo técnico',
+      staff_red: 'TR cuerpo técnico',
     }
 
     return labels[type] ?? type
   }
+
+  const staffRoleLabel = (role: LiveStaffRole) => (role === 'director' ? 'DT' : 'AT')
+
+  const resolveEventActorLabel = useCallback((team: LiveTeam, event: { playerId: string | null; staffRole?: LiveStaffRole }) => {
+    if (event.staffRole) {
+      const staffName = team.technicalStaff?.[event.staffRole]?.name?.trim() || 'Sin registrar'
+      return `${staffRoleLabel(event.staffRole)} ${staffName}`
+    }
+
+    if (!event.playerId) return 'Sin jugador'
+    const player = team.players.find((item) => item.id === event.playerId)
+    return player?.name ?? 'Sin jugador'
+  }, [])
 
   const resolveLiveTeamById = useCallback(
     (teamId: string) => {
@@ -991,6 +1007,15 @@ function App() {
   useEffect(() => {
     if (!selectedTeam) return
 
+    const hasDirector = Boolean(selectedTeam.technicalStaff?.director?.name?.trim())
+    const hasAssistant = Boolean(selectedTeam.technicalStaff?.assistant?.name?.trim())
+    if (selectedStaffRole === 'director' && !hasDirector && hasAssistant) {
+      setSelectedStaffRole('assistant')
+    }
+    if (selectedStaffRole === 'assistant' && !hasAssistant && hasDirector) {
+      setSelectedStaffRole('director')
+    }
+
     const teamPlayerIds = new Set(selectedTeam.players.map((player) => player.id))
     const validStarters = lineupStarters.filter((playerId) => teamPlayerIds.has(playerId) && !selectedTeam.redCarded.includes(playerId))
 
@@ -1020,7 +1045,7 @@ function App() {
         return sameStringArray(current, next) ? current : next
       })
     })
-  }, [formationSlotsCount, lineupStarters, selectedTeam])
+  }, [formationSlotsCount, lineupStarters, selectedStaffRole, selectedTeam])
 
   const applyActionFeedback = (ok: boolean, successText: string, failText: string) => {
     setAdminMessage(ok ? successText : failText)
@@ -1563,6 +1588,33 @@ function App() {
       substitution: 'Cambio',
     }
     applyActionFeedback(response.ok, `${labels[resolved.type] ?? resolved.type} registrado`, response.ok ? '' : response.message)
+  }
+
+  const sendStaffCardEvent = async (staffRole: LiveStaffRole, eventType: 'staff_yellow' | 'staff_red') => {
+    if (!selectedTeam) return
+    if (!canRegisterLiveEvents) {
+      applyActionFeedback(false, '', 'Debes iniciar el partido para registrar eventos')
+      return
+    }
+    if (liveIsFinished) {
+      applyActionFeedback(false, '', 'Partido finalizado: no se pueden registrar eventos')
+      return
+    }
+
+    const memberName = selectedTeam.technicalStaff?.[staffRole]?.name?.trim()
+    if (!memberName) {
+      applyActionFeedback(false, '', staffRole === 'director' ? 'Este equipo no tiene DT registrado' : 'Este equipo no tiene AT registrado')
+      return
+    }
+
+    if (selectedTeam.staffDiscipline?.[staffRole]?.sentOff) {
+      applyActionFeedback(false, '', `${staffRoleLabel(staffRole)} expulsado: no puede registrar más eventos`)
+      return
+    }
+
+    const response = await apiService.registerLiveEvent(selectedTeam.id, eventType, null, staffRole)
+    const cardLabel = eventType === 'staff_yellow' ? 'TA' : 'TR'
+    applyActionFeedback(response.ok, `${cardLabel} para ${staffRoleLabel(staffRole)} registrada`, response.ok ? '' : response.message)
   }
 
   const substitutionOutOptions = useMemo(() => {
@@ -3093,13 +3145,14 @@ function App() {
         }),
       events: liveMatch.events.map((event) => {
         const team = event.teamId === liveMatch.homeTeam.id ? liveMatch.homeTeam : liveMatch.awayTeam
-        const player = event.playerId ? team.players.find((item) => item.id === event.playerId) : null
+        const actorLabel = resolveEventActorLabel(team, event)
 
         return {
           clock: event.clock,
           type: event.type,
           teamName: team.name,
-          playerName: player?.name ?? 'Sin jugador',
+          playerName: actorLabel,
+          ...(event.staffRole ? { staffRole: event.staffRole } : {}),
         }
       }),
       highlightVideos: [],
@@ -5261,7 +5314,7 @@ function App() {
                   </div>
                 </div>
 
-                <div className="mt-3 grid grid-cols-5 gap-2 text-center text-[11px]">
+                  <div className="mt-3 grid grid-cols-5 gap-2 text-center text-[11px]">
                   <div className="rounded border border-white/10 bg-slate-800 px-1 py-1 text-slate-200">
                     Remates: {selectedPlayerLiveStats.shots}
                   </div>
@@ -5278,6 +5331,56 @@ function App() {
                     TR: {selectedPlayerLiveStats.reds}
                   </div>
                 </div>
+
+                  <div className="mt-3 rounded-xl border border-white/10 bg-slate-900/60 p-3">
+                    <p className="mb-2 text-sm font-semibold text-white">Tarjetas cuerpo técnico</p>
+                    <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+                      <select
+                        value={selectedStaffRole}
+                        onChange={(event) => setSelectedStaffRole(event.target.value as LiveStaffRole)}
+                        className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white"
+                        disabled={!canRegisterLiveEvents}
+                      >
+                        <option value="director" disabled={!selectedTeam.technicalStaff?.director?.name}>
+                          DT {selectedTeam.technicalStaff?.director?.name ? `· ${selectedTeam.technicalStaff?.director?.name}` : '· Sin registrar'}
+                        </option>
+                        <option value="assistant" disabled={!selectedTeam.technicalStaff?.assistant?.name}>
+                          AT {selectedTeam.technicalStaff?.assistant?.name ? `· ${selectedTeam.technicalStaff?.assistant?.name}` : '· Sin registrar'}
+                        </option>
+                      </select>
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <span className="rounded bg-amber-500/90 px-2 py-1 font-bold text-amber-950">
+                          TA: {selectedTeam.staffDiscipline?.[selectedStaffRole]?.yellows ?? 0}
+                        </span>
+                        <span className="rounded bg-rose-600/90 px-2 py-1 font-bold text-rose-50">
+                          TR: {selectedTeam.staffDiscipline?.[selectedStaffRole]?.reds ?? 0}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        disabled={!canRegisterLiveEvents || !selectedTeam.technicalStaff?.[selectedStaffRole]?.name || Boolean(selectedTeam.staffDiscipline?.[selectedStaffRole]?.sentOff)}
+                        onClick={() => void sendStaffCardEvent(selectedStaffRole, 'staff_yellow')}
+                        className="rounded bg-amber-500 px-2 py-2 text-xs font-semibold text-amber-950 disabled:opacity-50"
+                      >
+                        TA {staffRoleLabel(selectedStaffRole)}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canRegisterLiveEvents || !selectedTeam.technicalStaff?.[selectedStaffRole]?.name || Boolean(selectedTeam.staffDiscipline?.[selectedStaffRole]?.sentOff)}
+                        onClick={() => void sendStaffCardEvent(selectedStaffRole, 'staff_red')}
+                        className="rounded bg-rose-600 px-2 py-2 text-xs font-semibold text-rose-50 disabled:opacity-50"
+                      >
+                        TR {staffRoleLabel(selectedStaffRole)}
+                      </button>
+                    </div>
+                    {Boolean(selectedTeam.staffDiscipline?.[selectedStaffRole]?.sentOff) && (
+                      <p className="mt-2 text-[11px] font-semibold text-rose-200">
+                        {staffRoleLabel(selectedStaffRole)} expulsado en el partido.
+                      </p>
+                    )}
+                  </div>
               </div>
 
               {adminMessage && <p className="mt-3 text-sm text-primary-200">{adminMessage}</p>}
@@ -5303,10 +5406,10 @@ function App() {
                 <div className="mt-2 max-h-32 space-y-1 overflow-auto text-[11px] text-slate-100">
                   {liveMatch.events.slice(0, 8).map((event) => {
                     const team = event.teamId === liveMatch.homeTeam.id ? liveMatch.homeTeam : liveMatch.awayTeam
-                    const player = event.playerId ? team.players.find((item) => item.id === event.playerId) : null
+                    const actorLabel = resolveEventActorLabel(team, event)
                     return (
                       <p key={event.id} className="rounded bg-black/35 px-2 py-1">
-                        {event.clock} · {team.name} · {eventLabel(event.type)} {player ? `· ${player.name}` : ''}
+                        {event.clock} · {team.name} · {eventLabel(event.type)} · {actorLabel}
                       </p>
                     )
                   })}
@@ -5334,10 +5437,10 @@ function App() {
                 <div className="max-h-64 space-y-2 overflow-auto pr-1 text-xs">
                   {liveMatch.events.slice(0, 15).map((event) => {
                     const team = event.teamId === liveMatch.homeTeam.id ? liveMatch.homeTeam : liveMatch.awayTeam
-                    const player = event.playerId ? team.players.find((item) => item.id === event.playerId) : null
+                    const actorLabel = resolveEventActorLabel(team, event)
                     return (
                       <div key={event.id} className="rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-slate-200">
-                        {event.clock} · {team.name} · {eventLabel(event.type)} {player ? `· ${player.name}` : ''}
+                        {event.clock} · {team.name} · {eventLabel(event.type)} · {actorLabel}
                       </div>
                     )
                   })}

@@ -1,5 +1,5 @@
 import type { League } from '../types/league.ts'
-import type { LiveMatch, LiveSettings, LiveTimerAction } from '../types/live.ts'
+import type { LiveMatch, LiveSettings, LiveStaffRole, LiveTimerAction } from '../types/live.ts'
 import type {
   AuditLogEntry,
   AuthUser,
@@ -766,14 +766,26 @@ export const apiService = {
 
   async registerLiveEvent(
     teamId: string,
-    type: 'shot' | 'goal' | 'penalty_goal' | 'penalty_miss' | 'yellow' | 'red' | 'double_yellow' | 'assist' | 'substitution',
+    type:
+      | 'shot'
+      | 'goal'
+      | 'penalty_goal'
+      | 'penalty_miss'
+      | 'yellow'
+      | 'red'
+      | 'double_yellow'
+      | 'assist'
+      | 'substitution'
+      | 'staff_yellow'
+      | 'staff_red',
     playerId: string | null,
+    staffRole?: LiveStaffRole,
   ): Promise<ApiResponse<LiveMatch>> {
     try {
       const response = await apiFetch(`${apiBaseUrl}/api/admin/live/events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamId, type, playerId }),
+        body: JSON.stringify({ teamId, type, playerId, ...(staffRole ? { staffRole } : {}) }),
       })
       const responsePayload = (await response.json()) as { message?: string; data?: LiveMatch }
       if (!response.ok) {
