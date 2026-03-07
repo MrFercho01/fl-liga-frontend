@@ -1530,6 +1530,8 @@ function App() {
       }
     }
 
+    await loadLeagues()
+
     applyActionFeedback(true, 'Reglas parametrizadas guardadas', '')
   }
 
