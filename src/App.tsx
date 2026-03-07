@@ -153,6 +153,11 @@ const buildFormationOptions = (playersOnField: number): FormationOption[] => {
 const sameStringArray = (left: string[], right: string[]) =>
   left.length === right.length && left.every((item, index) => item === right[index])
 
+const clampInt = (value: number, minimum: number, maximum: number, fallback: number) => {
+  const normalized = Number.isFinite(value) ? Math.trunc(value) : fallback
+  return Math.min(maximum, Math.max(minimum, normalized))
+}
+
 const parseManualMatchId = (matchId: string, round: number) => {
   if (matchId.startsWith('manual__')) {
     const [prefix, rawRound, homeTeamId, awayTeamId] = matchId.split('__')
@@ -555,7 +560,11 @@ function App() {
         matchMinutes: selectedCategoryRules.matchMinutes ?? current.matchMinutes,
         breakMinutes: selectedCategoryRules.breakMinutes ?? current.breakMinutes,
       }))
-      const baseFinalTwoLegged = selectedCategoryRules.finalStageTwoLegged ?? selectedCategoryRules.playoffHomeAway ?? false
+      const baseFinalTwoLegged =
+        selectedCategoryRules.finalStageFinalTwoLegged
+        ?? selectedCategoryRules.finalStageTwoLegged
+        ?? selectedCategoryRules.playoffHomeAway
+        ?? false
 
       setCompetitionRulesDraft({
         allowDraws: selectedCategoryRules.allowDraws ?? true,
@@ -1508,17 +1517,35 @@ function App() {
     setSavingSettings(true)
 
     try {
-      const rulesResponse = await apiService.updateCategoryRules(selectedLeague.id, activeMatchCategoryId, {
-        playersOnField: settingsDraft.playersOnField,
-        matchMinutes: settingsDraft.matchMinutes,
-        breakMinutes: settingsDraft.breakMinutes,
-        ...competitionRulesDraft,
-        finalStageTwoLegged:
-          competitionRulesDraft.finalStageRoundOf16TwoLegged
-          || competitionRulesDraft.finalStageRoundOf8TwoLegged
-          || competitionRulesDraft.finalStageQuarterFinalsTwoLegged
-          || competitionRulesDraft.finalStageSemiFinalsTwoLegged,
-      })
+      const sanitizedRules = {
+        playersOnField: clampInt(settingsDraft.playersOnField, 5, 11, 11),
+        matchMinutes: clampInt(settingsDraft.matchMinutes, 20, 120, 90),
+        breakMinutes: clampInt(settingsDraft.breakMinutes, 0, 30, 15),
+        allowDraws: competitionRulesDraft.allowDraws,
+        pointsWin: clampInt(competitionRulesDraft.pointsWin, 0, 10, 3),
+        pointsDraw: clampInt(competitionRulesDraft.pointsDraw, 0, 10, 1),
+        pointsLoss: clampInt(competitionRulesDraft.pointsLoss, 0, 10, 0),
+        courtsCount: clampInt(competitionRulesDraft.courtsCount, 1, 20, 1),
+        maxRegisteredPlayers: clampInt(competitionRulesDraft.maxRegisteredPlayers, 5, 60, 25),
+        resolveDrawByPenalties: competitionRulesDraft.resolveDrawByPenalties,
+        playoffQualifiedTeams: clampInt(competitionRulesDraft.playoffQualifiedTeams, 2, 32, 8),
+        playoffHomeAway: competitionRulesDraft.finalStageFinalTwoLegged,
+        finalStageRoundOf16Enabled: competitionRulesDraft.finalStageRoundOf16Enabled,
+        finalStageRoundOf8Enabled: competitionRulesDraft.finalStageRoundOf8Enabled,
+        finalStageQuarterFinalsEnabled: competitionRulesDraft.finalStageQuarterFinalsEnabled,
+        finalStageSemiFinalsEnabled: competitionRulesDraft.finalStageSemiFinalsEnabled,
+        finalStageFinalEnabled: competitionRulesDraft.finalStageFinalEnabled,
+        finalStageRoundOf16TwoLegged: competitionRulesDraft.finalStageRoundOf16TwoLegged,
+        finalStageRoundOf8TwoLegged: competitionRulesDraft.finalStageRoundOf8TwoLegged,
+        finalStageQuarterFinalsTwoLegged: competitionRulesDraft.finalStageQuarterFinalsTwoLegged,
+        finalStageSemiFinalsTwoLegged: competitionRulesDraft.finalStageSemiFinalsTwoLegged,
+        finalStageFinalTwoLegged: competitionRulesDraft.finalStageFinalTwoLegged,
+        finalStageTwoLegged: competitionRulesDraft.finalStageFinalTwoLegged,
+        doubleRoundRobin: competitionRulesDraft.doubleRoundRobin,
+        regularSeasonRounds: clampInt(competitionRulesDraft.regularSeasonRounds, 1, 60, 9),
+      }
+
+      const rulesResponse = await apiService.updateCategoryRules(selectedLeague.id, activeMatchCategoryId, sanitizedRules)
       if (!rulesResponse.ok) {
         applyActionFeedback(false, '', rulesResponse.message || 'No se pudo guardar configuración')
         return
@@ -1537,7 +1564,11 @@ function App() {
           breakMinutes: refreshedCategoryRules.breakMinutes ?? current.breakMinutes,
         }))
 
-        const baseFinalTwoLegged = refreshedCategoryRules.finalStageTwoLegged ?? refreshedCategoryRules.playoffHomeAway ?? false
+        const baseFinalTwoLegged =
+          refreshedCategoryRules.finalStageFinalTwoLegged
+          ?? refreshedCategoryRules.finalStageTwoLegged
+          ?? refreshedCategoryRules.playoffHomeAway
+          ?? false
         setCompetitionRulesDraft({
           allowDraws: refreshedCategoryRules.allowDraws ?? true,
           pointsWin: refreshedCategoryRules.pointsWin ?? 3,

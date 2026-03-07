@@ -59,6 +59,23 @@ const apiFetch = (url: string, init?: RequestInit) => {
   })
 }
 
+const buildValidationErrorMessage = (payload: {
+  message?: string
+  errors?: {
+    fieldErrors?: Record<string, string[] | undefined>
+  }
+}) => {
+  const fieldErrors = payload.errors?.fieldErrors
+  if (!fieldErrors) return payload.message ?? 'Payload inválido'
+
+  const firstInvalidField = Object.entries(fieldErrors).find(([, messages]) => Array.isArray(messages) && messages.length > 0)
+  if (!firstInvalidField) return payload.message ?? 'Payload inválido'
+
+  const [field, messages] = firstInvalidField
+  const reason = messages?.[0] ?? 'valor inválido'
+  return `Campo inválido: ${field} (${reason})`
+}
+
 export const apiService = {
   setAuthToken(token: string) {
     authToken = token
@@ -993,8 +1010,16 @@ export const apiService = {
       })
 
       if (!response.ok) {
-        const errorPayload = (await response.json()) as { message?: string }
-        return { ok: false, message: errorPayload.message ?? 'No se pudo actualizar reglas de competencia' }
+        const errorPayload = (await response.json()) as {
+          message?: string
+          errors?: {
+            fieldErrors?: Record<string, string[] | undefined>
+          }
+        }
+        return {
+          ok: false,
+          message: buildValidationErrorMessage(errorPayload) ?? 'No se pudo actualizar reglas de competencia',
+        }
       }
 
       const responsePayload = (await response.json()) as { data: League }
