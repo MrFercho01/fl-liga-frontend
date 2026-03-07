@@ -1470,17 +1470,30 @@ function App() {
 
     const response = await apiService.setLiveTimer(action)
     if (response.ok) {
+      setLiveMatch(response.data)
+      const activeTeam =
+        response.data.homeTeam.id === selectedTeamId || response.data.awayTeam.id === selectedTeamId
+          ? (response.data.homeTeam.id === selectedTeamId ? response.data.homeTeam : response.data.awayTeam)
+          : response.data.homeTeam
+      setSelectedTeamId(activeTeam.id)
+      setLineupStarters(activeTeam.starters)
+      setLineupSubstitutes(activeTeam.substitutes)
+
       if (action === 'start' && liveHasStarted) {
         setSecondHalfStarted(true)
       }
       if (action === 'reset') {
         setSecondHalfStarted(false)
+        setSelectedPlayerId('')
+        setSubstitutionOutPlayerId('')
+        setSubstitutionInPlayerId('')
+        setSelectedMvpPlayerId('')
       }
     }
     const labels: Record<'start' | 'stop' | 'reset' | 'finish', string> = {
       start: liveHasStarted ? 'Segundo tiempo iniciado' : 'Partido iniciado',
       stop: 'Primer tiempo terminado',
-      reset: 'Timer reiniciado',
+      reset: 'Live reiniciado: marcador, eventos y alineaciones en cero',
       finish: 'Partido finalizado',
     }
     applyActionFeedback(response.ok, labels[action], response.ok ? '' : response.message)
