@@ -348,6 +348,9 @@ function App() {
   const [roundAwardsRanking, setRoundAwardsRanking] = useState<RoundAwardsRankingEntry[]>([])
   const [substitutionOutPlayerId, setSubstitutionOutPlayerId] = useState('')
   const [substitutionInPlayerId, setSubstitutionInPlayerId] = useState('')
+  const [substitutionVisualByTeam, setSubstitutionVisualByTeam] = useState<
+    Record<string, { outPlayerIds: string[]; inPlayerIds: string[] }>
+  >({})
   const [historySeasonFilter, setHistorySeasonFilter] = useState<number>(2026)
   const [activeHistoryTab, setActiveHistoryTab] = useState<HistoryTabKey>('standings')
   const [scorersSearchTerm, setScorersSearchTerm] = useState('')
@@ -883,6 +886,42 @@ function App() {
     if (!selectedTeam) return new Set<string>()
     return substitutedOutByTeam.get(selectedTeam.id) ?? new Set<string>()
   }, [selectedTeam, substitutedOutByTeam])
+
+  const selectedTeamSubstitutionVisual = useMemo(() => {
+    if (!selectedTeam) return { outPlayerIds: [] as string[], inPlayerIds: [] as string[] }
+    return substitutionVisualByTeam[selectedTeam.id] ?? { outPlayerIds: [] as string[], inPlayerIds: [] as string[] }
+  }, [selectedTeam, substitutionVisualByTeam])
+
+  const selectedTeamSubstitutedIn = useMemo(
+    () => new Set<string>(selectedTeamSubstitutionVisual.inPlayerIds),
+    [selectedTeamSubstitutionVisual.inPlayerIds],
+  )
+
+  const substituteVisualIds = useMemo(() => {
+    if (!selectedTeam) return [] as string[]
+    const visibleIds = new Set<string>([...lineupSubstitutes, ...selectedTeamSubstitutionVisual.inPlayerIds])
+    return selectedTeam.players.map((player) => player.id).filter((id) => visibleIds.has(id))
+  }, [lineupSubstitutes, selectedTeam, selectedTeamSubstitutionVisual.inPlayerIds])
+
+  const playerBadges = useCallback(
+    (playerId: string) => {
+      if (!selectedTeam) return [] as string[]
+
+      const stats = selectedTeam.playerStats[playerId] ?? { goals: 0, assists: 0, yellows: 0, reds: 0 }
+      const badges: string[] = []
+
+      if (stats.goals > 0) badges.push(`⚽ ${stats.goals}`)
+      if (stats.assists > 0) badges.push(`🅰 ${stats.assists}`)
+      if (stats.yellows > 0) badges.push(`🟨 ${stats.yellows}`)
+      if (stats.reds > 0) badges.push(`🟥 ${stats.reds}`)
+
+      if (selectedTeamSubstitutedOut.has(playerId)) badges.push('↘ Salió')
+      if (selectedTeamSubstitutedIn.has(playerId)) badges.push('↗ Entró')
+
+      return badges
+    },
+    [selectedTeam, selectedTeamSubstitutedIn, selectedTeamSubstitutedOut],
+  )
 
   const liveTotals = useMemo(() => {
     if (!liveMatch) {
@@ -1488,6 +1527,7 @@ function App() {
         setSubstitutionOutPlayerId('')
         setSubstitutionInPlayerId('')
         setSelectedMvpPlayerId('')
+        setSubstitutionVisualByTeam({})
       }
     }
     const labels: Record<'start' | 'stop' | 'reset' | 'finish', string> = {
@@ -1810,6 +1850,16 @@ function App() {
     setLineupSubstitutes(nextSubstitutes)
     setSubstitutionOutPlayerId('')
     setSubstitutionInPlayerId('')
+    setSubstitutionVisualByTeam((current) => {
+      const teamEntry = current[selectedTeam.id] ?? { outPlayerIds: [], inPlayerIds: [] }
+      return {
+        ...current,
+        [selectedTeam.id]: {
+          outPlayerIds: Array.from(new Set([...teamEntry.outPlayerIds, outgoingPlayerId])),
+          inPlayerIds: Array.from(new Set([...teamEntry.inPlayerIds, incomingPlayerId])),
+        },
+      }
+    })
     applyActionFeedback(true, 'Cambio registrado correctamente', '')
   }
 
@@ -3125,6 +3175,7 @@ function App() {
     setLineupStarters(response.data.homeTeam.starters)
     setLineupSubstitutes(response.data.homeTeam.substitutes)
     setSettingsDraft(response.data.settings)
+    setSubstitutionVisualByTeam({})
     setSelectedMvpPlayerId('')
     setSecondHalfStarted(false)
     applyActionFeedback(true, 'Partido cargado para iniciar en vivo', '')
@@ -5145,6 +5196,7 @@ function App() {
                         const isSubstitute = lineupSubstitutes.includes(player.id)
                         const isRedCarded = selectedTeam.redCarded.includes(player.id)
                         const status = isRedCarded ? 'Expulsado' : isStarter ? 'Titular' : isSubstitute ? 'Suplente' : 'Disponible'
+                        const badges = playerBadges(player.id)
 
                         return (
                         <div
@@ -5162,6 +5214,15 @@ function App() {
                             <div>
                               <p>#{player.number} {player.name} ({player.position})</p>
                               <p className="text-[10px] text-slate-400">{status}</p>
+                              {badges.length > 0 && (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {badges.map((badge) => (
+                                    <span key={`${player.id}-${badge}`} className="rounded bg-slate-700/90 px-1 py-0.5 text-[10px] text-slate-100">
+                                      {badge}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -5216,6 +5277,7 @@ function App() {
                                 const playerId = starterSlots[slotIndex] ?? ''
                                 const player = playerId ? playerMap.get(playerId) : null
                                 const isRedCarded = playerId ? selectedTeam.redCarded.includes(playerId) : false
+                                const badges = playerId ? playerBadges(playerId) : []
                                 return (
                                   <div key={`${row.rowIndex}-${slotIndex}`} className="w-[92px] text-center">
                                     <div
@@ -5246,6 +5308,15 @@ function App() {
                                     <p className="mt-1 truncate text-[10px] font-semibold text-white drop-shadow">
                                       {player ? player.name : 'Posición libre'}{isRedCarded ? ' · TR' : ''}
                                     </p>
+                                    {player && badges.length > 0 && (
+                                      <div className="mt-1 flex flex-wrap justify-center gap-1 px-1">
+                                        {badges.map((badge) => (
+                                          <span key={`${player.id}-field-${badge}`} className="rounded bg-black/45 px-1 py-0.5 text-[9px] text-white">
+                                            {badge}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 )
                               })}
@@ -5266,26 +5337,42 @@ function App() {
                     className="min-h-28 rounded-xl border border-white/20 bg-slate-900/75 p-3"
                   >
                     <p className="mb-1 text-sm font-semibold text-white">Suplentes ({lineupSubstitutes.length})</p>
-                    <p className="mb-2 text-[11px] text-slate-300">Arrastra desde cancha para sacar titular</p>
+                    <p className="mb-2 text-[11px] text-slate-300">Arrastra desde cancha para sacar titular · se muestran también las que entraron</p>
                     <div className="space-y-2 text-xs">
-                      {lineupSubstitutes.map((id) => (
-                        <button
-                          key={id}
-                          type="button"
-                          draggable={!liveIsFinished}
-                          onDragStart={(event) => onDragPlayer(event, id)}
-                          className="block w-full rounded border border-white/15 bg-slate-800/90 px-2 py-1 text-left text-slate-100"
-                        >
-                          <span className="flex items-center gap-2">
-                            {playerMap.get(id)?.photoUrl ? (
-                              <img src={playerMap.get(id)?.photoUrl} alt={playerMap.get(id)?.name} className="h-6 w-6 rounded-full border border-white/20 object-cover" />
-                            ) : (
-                              <span className="flex h-6 w-6 items-center justify-center rounded-full border border-white/20 text-[10px] text-slate-400">S/F</span>
+                      {substituteVisualIds.map((id) => {
+                        const isOnField = lineupStarters.includes(id)
+                        const canDrag = !liveIsFinished && lineupSubstitutes.includes(id)
+                        const badges = playerBadges(id)
+
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            draggable={canDrag}
+                            onDragStart={(event) => onDragPlayer(event, id)}
+                            className={`block w-full rounded border px-2 py-1 text-left ${isOnField ? 'border-primary-300/40 bg-primary-500/15 text-primary-100' : 'border-white/15 bg-slate-800/90 text-slate-100'}`}
+                          >
+                            <span className="flex items-center gap-2">
+                              {playerMap.get(id)?.photoUrl ? (
+                                <img src={playerMap.get(id)?.photoUrl} alt={playerMap.get(id)?.name} className="h-6 w-6 rounded-full border border-white/20 object-cover" />
+                              ) : (
+                                <span className="flex h-6 w-6 items-center justify-center rounded-full border border-white/20 text-[10px] text-slate-400">S/F</span>
+                              )}
+                              <span className="flex-1">{playerMap.get(id)?.name ?? id}</span>
+                              {isOnField && <span className="rounded bg-primary-700/70 px-1 py-0.5 text-[10px] font-semibold">↗ En cancha</span>}
+                            </span>
+                            {badges.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1 pl-8">
+                                {badges.map((badge) => (
+                                  <span key={`${id}-bench-${badge}`} className="rounded bg-slate-700/90 px-1 py-0.5 text-[10px] text-slate-100">
+                                    {badge}
+                                  </span>
+                                ))}
+                              </div>
                             )}
-                            {playerMap.get(id)?.name ?? id}
-                          </span>
-                        </button>
-                      ))}
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
 
@@ -5295,6 +5382,7 @@ function App() {
                       {lineupStarters.map((id) => (
                         (() => {
                           const isRedCarded = selectedTeam.redCarded.includes(id)
+                          const badges = playerBadges(id)
                           return (
                         <div
                           key={id}
@@ -5313,6 +5401,16 @@ function App() {
                               {isRedCarded && <span className="rounded bg-rose-700/90 px-1 py-0.5 text-[10px] font-bold">TR</span>}
                             </span>
                           </button>
+
+                          {badges.length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {badges.map((badge) => (
+                                <span key={`${id}-quick-${badge}`} className="rounded bg-slate-700/90 px-1 py-0.5 text-[10px] text-slate-100">
+                                  {badge}
+                                </span>
+                              ))}
+                            </div>
+                          )}
 
                           {hoveredStarterId === id && !isRedCarded && (
                             <div className="mt-1 grid grid-cols-3 gap-1 sm:grid-cols-6">
