@@ -634,6 +634,10 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   const [matchLikeState, setMatchLikeState] = useState<PublicMatchLikeState>({ likes: 0, likedByCurrentUser: false })
   const [updatingMatchLike, setUpdatingMatchLike] = useState(false)
   const [updatingLike, setUpdatingLike] = useState(false)
+  const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return false
+    return window.Notification.permission === 'granted'
+  })
   const [goalSoundEnabled, setGoalSoundEnabled] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.localStorage.getItem('@fl_goal_sound_enabled') === '1'
@@ -1308,6 +1312,17 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     const previousLiked = matchLikeState.likedByCurrentUser
     const nextLiked = !previousLiked
 
+    if (nextLiked && typeof window !== 'undefined' && 'Notification' in window && window.Notification.permission === 'default') {
+      try {
+        const permission = await window.Notification.requestPermission()
+        setNotificationsEnabled(permission === 'granted')
+      } catch {
+        setNotificationsEnabled(false)
+      }
+    } else if (typeof window !== 'undefined' && 'Notification' in window) {
+      setNotificationsEnabled(window.Notification.permission === 'granted')
+    }
+
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(storageKey, nextLiked ? '1' : '0')
     }
@@ -1691,6 +1706,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     const hasPrevious = previousEventIdsRef.current.length > 0
     const incomingEvents = events.filter((event) => incomingIds.includes(event.id))
     const hasIncomingGoal = incomingEvents.some((event) => event.type === 'goal' || event.type === 'penalty_goal')
+    const incomingGoalEvents = incomingEvents.filter((event) => event.type === 'goal' || event.type === 'penalty_goal')
     const hasIncomingPenaltyMiss = incomingEvents.some((event) => event.type === 'penalty_miss')
     const highlightTypes = new Set<LiveEvent['type']>([
       'goal',
@@ -1726,6 +1742,31 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
         if (goalSoundEnabled) {
           playGoalBeep()
         }
+
+        if (
+          matchLikeState.likedByCurrentUser
+          && selectedMatch
+          && typeof window !== 'undefined'
+          && 'Notification' in window
+          && window.Notification.permission === 'granted'
+        ) {
+          const lastGoalEvent = incomingGoalEvents[incomingGoalEvents.length - 1]
+          const scoreText = liveForSelected ? `${liveForSelected.homeTeam.stats.goals} - ${liveForSelected.awayTeam.stats.goals}` : ''
+          const title = `⚽ Gol en ${selectedMatch.id}`
+          const body = lastGoalEvent
+            ? `${lastGoalEvent.label}${scoreText ? ` · Marcador ${scoreText}` : ''}`
+            : `Se registró un gol en el partido seguido${scoreText ? ` · ${scoreText}` : ''}`
+
+          try {
+            const notification = new window.Notification(title, {
+              body,
+              tag: `goal-${selectedMatch.id}`,
+            })
+            window.setTimeout(() => notification.close(), 7000)
+          } catch {
+            // Ignora fallos de notificación del navegador/dispositivo
+          }
+        }
       }
 
       if (hasPrevious && hasIncomingPenaltyMiss && liveForSelected?.status === 'live') {
@@ -1749,7 +1790,14 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
 
     previousEventIdsRef.current = currentIds
     return undefined
-  }, [events, goalSoundEnabled, liveForSelected?.status])
+  }, [
+    events,
+    goalSoundEnabled,
+    liveForSelected,
+    liveForSelected?.status,
+    matchLikeState.likedByCurrentUser,
+    selectedMatch,
+  ])
 
   useEffect(() => {
     if (!selectedMatch || !liveForSelected) return
@@ -2417,7 +2465,9 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                     : 'border-white/20 bg-slate-900/70 text-slate-100'
                 }`}
               >
-                {matchLikeState.likedByCurrentUser ? '❤️ Te gusta este partido' : '🤍 Me gusta este partido'} · {matchLikeState.likes}
+                {matchLikeState.likedByCurrentUser
+                  ? `🔔 Siguiendo partido${notificationsEnabled ? '' : ' (sin permiso notif.)'}`
+                  : '🔕 Seguir partido'} · {matchLikeState.likes}
               </button>
             </div>
 
