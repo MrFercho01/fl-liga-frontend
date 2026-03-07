@@ -355,6 +355,7 @@ function App() {
   const [redsPage, setRedsPage] = useState(1)
   const [homePenaltiesDraft, setHomePenaltiesDraft] = useState('')
   const [awayPenaltiesDraft, setAwayPenaltiesDraft] = useState('')
+  const [savingSettings, setSavingSettings] = useState(false)
   const [finalsLeftSeedTeamIds, setFinalsLeftSeedTeamIds] = useState<string[]>([])
   const [finalsRightSeedTeamIds, setFinalsRightSeedTeamIds] = useState<string[]>([])
   const [draggingFinalSeedTeamId, setDraggingFinalSeedTeamId] = useState('')
@@ -1497,42 +1498,88 @@ function App() {
   }
 
   const saveSettings = async () => {
+    if (savingSettings) return
+
     if (!selectedLeague || !activeMatchCategoryId) {
       applyActionFeedback(false, '', 'Selecciona liga y categoría para guardar configuración')
       return
     }
 
-    const rulesResponse = await apiService.updateCategoryRules(selectedLeague.id, activeMatchCategoryId, {
-      playersOnField: settingsDraft.playersOnField,
-      matchMinutes: settingsDraft.matchMinutes,
-      breakMinutes: settingsDraft.breakMinutes,
-      ...competitionRulesDraft,
-      finalStageTwoLegged:
-        competitionRulesDraft.finalStageRoundOf16TwoLegged
-        || competitionRulesDraft.finalStageRoundOf8TwoLegged
-        || competitionRulesDraft.finalStageQuarterFinalsTwoLegged
-        || competitionRulesDraft.finalStageSemiFinalsTwoLegged,
-    })
-    if (!rulesResponse.ok) {
-      applyActionFeedback(false, '', rulesResponse.message)
-      return
-    }
+    setSavingSettings(true)
 
-    setLeagues((current) =>
-      current.map((league) => (league.id === rulesResponse.data.id ? rulesResponse.data : league)),
-    )
-
-    if (liveMatch) {
-      const liveResponse = await apiService.updateLiveSettings(settingsDraft)
-      if (!liveResponse.ok) {
-        applyActionFeedback(false, '', liveResponse.message)
+    try {
+      const rulesResponse = await apiService.updateCategoryRules(selectedLeague.id, activeMatchCategoryId, {
+        playersOnField: settingsDraft.playersOnField,
+        matchMinutes: settingsDraft.matchMinutes,
+        breakMinutes: settingsDraft.breakMinutes,
+        ...competitionRulesDraft,
+        finalStageTwoLegged:
+          competitionRulesDraft.finalStageRoundOf16TwoLegged
+          || competitionRulesDraft.finalStageRoundOf8TwoLegged
+          || competitionRulesDraft.finalStageQuarterFinalsTwoLegged
+          || competitionRulesDraft.finalStageSemiFinalsTwoLegged,
+      })
+      if (!rulesResponse.ok) {
+        applyActionFeedback(false, '', rulesResponse.message || 'No se pudo guardar configuración')
         return
       }
+
+      setLeagues((current) =>
+        current.map((league) => (league.id === rulesResponse.data.id ? rulesResponse.data : league)),
+      )
+
+      const refreshedCategoryRules = rulesResponse.data.categories.find((item) => item.id === activeMatchCategoryId)?.rules
+      if (refreshedCategoryRules) {
+        setSettingsDraft((current) => ({
+          ...current,
+          playersOnField: refreshedCategoryRules.playersOnField ?? current.playersOnField,
+          matchMinutes: refreshedCategoryRules.matchMinutes ?? current.matchMinutes,
+          breakMinutes: refreshedCategoryRules.breakMinutes ?? current.breakMinutes,
+        }))
+
+        const baseFinalTwoLegged = refreshedCategoryRules.finalStageTwoLegged ?? refreshedCategoryRules.playoffHomeAway ?? false
+        setCompetitionRulesDraft({
+          allowDraws: refreshedCategoryRules.allowDraws ?? true,
+          pointsWin: refreshedCategoryRules.pointsWin ?? 3,
+          pointsDraw: refreshedCategoryRules.pointsDraw ?? 1,
+          pointsLoss: refreshedCategoryRules.pointsLoss ?? 0,
+          courtsCount: refreshedCategoryRules.courtsCount ?? 1,
+          maxRegisteredPlayers: refreshedCategoryRules.maxRegisteredPlayers ?? 25,
+          resolveDrawByPenalties: refreshedCategoryRules.resolveDrawByPenalties ?? false,
+          playoffQualifiedTeams: refreshedCategoryRules.playoffQualifiedTeams ?? 8,
+          finalStageRoundOf16Enabled: refreshedCategoryRules.finalStageRoundOf16Enabled ?? false,
+          finalStageRoundOf8Enabled: refreshedCategoryRules.finalStageRoundOf8Enabled ?? false,
+          finalStageQuarterFinalsEnabled: refreshedCategoryRules.finalStageQuarterFinalsEnabled ?? true,
+          finalStageSemiFinalsEnabled: refreshedCategoryRules.finalStageSemiFinalsEnabled ?? true,
+          finalStageFinalEnabled: refreshedCategoryRules.finalStageFinalEnabled ?? true,
+          finalStageTwoLegged: baseFinalTwoLegged,
+          finalStageRoundOf16TwoLegged: refreshedCategoryRules.finalStageRoundOf16TwoLegged ?? baseFinalTwoLegged,
+          finalStageRoundOf8TwoLegged: refreshedCategoryRules.finalStageRoundOf8TwoLegged ?? baseFinalTwoLegged,
+          finalStageQuarterFinalsTwoLegged: refreshedCategoryRules.finalStageQuarterFinalsTwoLegged ?? baseFinalTwoLegged,
+          finalStageSemiFinalsTwoLegged: refreshedCategoryRules.finalStageSemiFinalsTwoLegged ?? baseFinalTwoLegged,
+          finalStageFinalTwoLegged:
+            refreshedCategoryRules.finalStageFinalTwoLegged
+            ?? refreshedCategoryRules.finalStageTwoLegged
+            ?? refreshedCategoryRules.playoffHomeAway
+            ?? false,
+          doubleRoundRobin: refreshedCategoryRules.doubleRoundRobin ?? false,
+          regularSeasonRounds: refreshedCategoryRules.regularSeasonRounds ?? 9,
+        })
+      }
+
+      if (liveMatch) {
+        const liveResponse = await apiService.updateLiveSettings(settingsDraft)
+        if (!liveResponse.ok) {
+          applyActionFeedback(false, '', liveResponse.message || 'No se pudo actualizar settings live')
+          return
+        }
+      }
+
+      await loadLeagues()
+      applyActionFeedback(true, 'Reglas parametrizadas guardadas', '')
+    } finally {
+      setSavingSettings(false)
     }
-
-    await loadLeagues()
-
-    applyActionFeedback(true, 'Reglas parametrizadas guardadas', '')
   }
 
   const sendEvent = async (eventType: 'shot' | 'goal' | 'penalty_goal' | 'penalty_miss' | 'yellow' | 'red' | 'assist') => {
@@ -4307,11 +4354,14 @@ function App() {
                   <button
                     type="button"
                     onClick={saveSettings}
-                    className="rounded-lg border border-primary-300/50 bg-primary-500/20 px-4 py-2 text-sm font-semibold text-primary-100 hover:bg-primary-500/30"
+                    disabled={savingSettings}
+                    className="rounded-lg border border-primary-300/50 bg-primary-500/20 px-4 py-2 text-sm font-semibold text-primary-100 hover:bg-primary-500/30 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Modificar configuración del campeonato
+                    {savingSettings ? 'Guardando configuración...' : 'Modificar configuración del campeonato'}
                   </button>
                 </div>
+
+                {adminMessage && <p className="mt-3 text-sm text-primary-200">{adminMessage}</p>}
               </div>
             )}
           </section>
