@@ -2405,8 +2405,8 @@ function App() {
       }
     })
   }, [
+    competitionRulesDraft.regularSeasonRounds,
     competitionRulesDraft.finalStageFinalEnabled,
-    competitionRulesDraft.finalStageTwoLegged,
     competitionRulesDraft.finalStageFinalTwoLegged,
     competitionRulesDraft.finalStageQuarterFinalsEnabled,
     competitionRulesDraft.finalStageQuarterFinalsTwoLegged,
