@@ -560,38 +560,46 @@ function App() {
         matchMinutes: selectedCategoryRules.matchMinutes ?? current.matchMinutes,
         breakMinutes: selectedCategoryRules.breakMinutes ?? current.breakMinutes,
       }))
-      const baseFinalTwoLegged =
-        selectedCategoryRules.finalStageFinalTwoLegged
-        ?? selectedCategoryRules.finalStageTwoLegged
-        ?? selectedCategoryRules.playoffHomeAway
-        ?? false
-
-      setCompetitionRulesDraft({
-        allowDraws: selectedCategoryRules.allowDraws ?? true,
-        pointsWin: selectedCategoryRules.pointsWin ?? 3,
-        pointsDraw: selectedCategoryRules.pointsDraw ?? 1,
-        pointsLoss: selectedCategoryRules.pointsLoss ?? 0,
-        courtsCount: selectedCategoryRules.courtsCount ?? 1,
-        maxRegisteredPlayers: selectedCategoryRules.maxRegisteredPlayers ?? 25,
-        resolveDrawByPenalties: selectedCategoryRules.resolveDrawByPenalties ?? false,
-        playoffQualifiedTeams: selectedCategoryRules.playoffQualifiedTeams ?? 8,
-        finalStageRoundOf16Enabled: selectedCategoryRules.finalStageRoundOf16Enabled ?? false,
-        finalStageRoundOf8Enabled: selectedCategoryRules.finalStageRoundOf8Enabled ?? false,
-        finalStageQuarterFinalsEnabled: selectedCategoryRules.finalStageQuarterFinalsEnabled ?? true,
-        finalStageSemiFinalsEnabled: selectedCategoryRules.finalStageSemiFinalsEnabled ?? true,
-        finalStageFinalEnabled: selectedCategoryRules.finalStageFinalEnabled ?? true,
-        finalStageTwoLegged: baseFinalTwoLegged,
-        finalStageRoundOf16TwoLegged: selectedCategoryRules.finalStageRoundOf16TwoLegged ?? baseFinalTwoLegged,
-        finalStageRoundOf8TwoLegged: selectedCategoryRules.finalStageRoundOf8TwoLegged ?? baseFinalTwoLegged,
-        finalStageQuarterFinalsTwoLegged: selectedCategoryRules.finalStageQuarterFinalsTwoLegged ?? baseFinalTwoLegged,
-        finalStageSemiFinalsTwoLegged: selectedCategoryRules.finalStageSemiFinalsTwoLegged ?? baseFinalTwoLegged,
-        finalStageFinalTwoLegged:
+      setCompetitionRulesDraft((current) => {
+        const baseFinalTwoLegged =
           selectedCategoryRules.finalStageFinalTwoLegged
           ?? selectedCategoryRules.finalStageTwoLegged
           ?? selectedCategoryRules.playoffHomeAway
-          ?? false,
-        doubleRoundRobin: selectedCategoryRules.doubleRoundRobin ?? false,
-        regularSeasonRounds: selectedCategoryRules.regularSeasonRounds ?? 9,
+          ?? current.finalStageFinalTwoLegged
+          ?? false
+
+        return {
+          ...current,
+          allowDraws: selectedCategoryRules.allowDraws ?? current.allowDraws,
+          pointsWin: selectedCategoryRules.pointsWin ?? current.pointsWin,
+          pointsDraw: selectedCategoryRules.pointsDraw ?? current.pointsDraw,
+          pointsLoss: selectedCategoryRules.pointsLoss ?? current.pointsLoss,
+          courtsCount: selectedCategoryRules.courtsCount ?? current.courtsCount,
+          maxRegisteredPlayers: selectedCategoryRules.maxRegisteredPlayers ?? current.maxRegisteredPlayers,
+          resolveDrawByPenalties: selectedCategoryRules.resolveDrawByPenalties ?? current.resolveDrawByPenalties,
+          playoffQualifiedTeams: selectedCategoryRules.playoffQualifiedTeams ?? current.playoffQualifiedTeams,
+          finalStageRoundOf16Enabled: selectedCategoryRules.finalStageRoundOf16Enabled ?? current.finalStageRoundOf16Enabled,
+          finalStageRoundOf8Enabled: selectedCategoryRules.finalStageRoundOf8Enabled ?? current.finalStageRoundOf8Enabled,
+          finalStageQuarterFinalsEnabled:
+            selectedCategoryRules.finalStageQuarterFinalsEnabled ?? current.finalStageQuarterFinalsEnabled,
+          finalStageSemiFinalsEnabled: selectedCategoryRules.finalStageSemiFinalsEnabled ?? current.finalStageSemiFinalsEnabled,
+          finalStageFinalEnabled: selectedCategoryRules.finalStageFinalEnabled ?? current.finalStageFinalEnabled,
+          finalStageTwoLegged: baseFinalTwoLegged,
+          finalStageRoundOf16TwoLegged:
+            selectedCategoryRules.finalStageRoundOf16TwoLegged ?? current.finalStageRoundOf16TwoLegged,
+          finalStageRoundOf8TwoLegged: selectedCategoryRules.finalStageRoundOf8TwoLegged ?? current.finalStageRoundOf8TwoLegged,
+          finalStageQuarterFinalsTwoLegged:
+            selectedCategoryRules.finalStageQuarterFinalsTwoLegged ?? current.finalStageQuarterFinalsTwoLegged,
+          finalStageSemiFinalsTwoLegged:
+            selectedCategoryRules.finalStageSemiFinalsTwoLegged ?? current.finalStageSemiFinalsTwoLegged,
+          finalStageFinalTwoLegged:
+            selectedCategoryRules.finalStageFinalTwoLegged
+            ?? selectedCategoryRules.finalStageTwoLegged
+            ?? selectedCategoryRules.playoffHomeAway
+            ?? current.finalStageFinalTwoLegged,
+          doubleRoundRobin: selectedCategoryRules.doubleRoundRobin ?? current.doubleRoundRobin,
+          regularSeasonRounds: selectedCategoryRules.regularSeasonRounds ?? current.regularSeasonRounds,
+        }
       })
     })
   }, [selectedCategoryRules])
@@ -1564,37 +1572,48 @@ function App() {
           breakMinutes: refreshedCategoryRules.breakMinutes ?? current.breakMinutes,
         }))
 
-        const baseFinalTwoLegged =
-          refreshedCategoryRules.finalStageFinalTwoLegged
-          ?? refreshedCategoryRules.finalStageTwoLegged
-          ?? refreshedCategoryRules.playoffHomeAway
-          ?? false
-        setCompetitionRulesDraft({
-          allowDraws: refreshedCategoryRules.allowDraws ?? true,
-          pointsWin: refreshedCategoryRules.pointsWin ?? 3,
-          pointsDraw: refreshedCategoryRules.pointsDraw ?? 1,
-          pointsLoss: refreshedCategoryRules.pointsLoss ?? 0,
-          courtsCount: refreshedCategoryRules.courtsCount ?? 1,
-          maxRegisteredPlayers: refreshedCategoryRules.maxRegisteredPlayers ?? 25,
-          resolveDrawByPenalties: refreshedCategoryRules.resolveDrawByPenalties ?? false,
-          playoffQualifiedTeams: refreshedCategoryRules.playoffQualifiedTeams ?? 8,
-          finalStageRoundOf16Enabled: refreshedCategoryRules.finalStageRoundOf16Enabled ?? false,
-          finalStageRoundOf8Enabled: refreshedCategoryRules.finalStageRoundOf8Enabled ?? false,
-          finalStageQuarterFinalsEnabled: refreshedCategoryRules.finalStageQuarterFinalsEnabled ?? true,
-          finalStageSemiFinalsEnabled: refreshedCategoryRules.finalStageSemiFinalsEnabled ?? true,
-          finalStageFinalEnabled: refreshedCategoryRules.finalStageFinalEnabled ?? true,
-          finalStageTwoLegged: baseFinalTwoLegged,
-          finalStageRoundOf16TwoLegged: refreshedCategoryRules.finalStageRoundOf16TwoLegged ?? baseFinalTwoLegged,
-          finalStageRoundOf8TwoLegged: refreshedCategoryRules.finalStageRoundOf8TwoLegged ?? baseFinalTwoLegged,
-          finalStageQuarterFinalsTwoLegged: refreshedCategoryRules.finalStageQuarterFinalsTwoLegged ?? baseFinalTwoLegged,
-          finalStageSemiFinalsTwoLegged: refreshedCategoryRules.finalStageSemiFinalsTwoLegged ?? baseFinalTwoLegged,
-          finalStageFinalTwoLegged:
+        setCompetitionRulesDraft((current) => {
+          const baseFinalTwoLegged =
             refreshedCategoryRules.finalStageFinalTwoLegged
             ?? refreshedCategoryRules.finalStageTwoLegged
             ?? refreshedCategoryRules.playoffHomeAway
-            ?? false,
-          doubleRoundRobin: refreshedCategoryRules.doubleRoundRobin ?? false,
-          regularSeasonRounds: refreshedCategoryRules.regularSeasonRounds ?? 9,
+            ?? current.finalStageFinalTwoLegged
+            ?? false
+
+          return {
+            ...current,
+            allowDraws: refreshedCategoryRules.allowDraws ?? current.allowDraws,
+            pointsWin: refreshedCategoryRules.pointsWin ?? current.pointsWin,
+            pointsDraw: refreshedCategoryRules.pointsDraw ?? current.pointsDraw,
+            pointsLoss: refreshedCategoryRules.pointsLoss ?? current.pointsLoss,
+            courtsCount: refreshedCategoryRules.courtsCount ?? current.courtsCount,
+            maxRegisteredPlayers: refreshedCategoryRules.maxRegisteredPlayers ?? current.maxRegisteredPlayers,
+            resolveDrawByPenalties: refreshedCategoryRules.resolveDrawByPenalties ?? current.resolveDrawByPenalties,
+            playoffQualifiedTeams: refreshedCategoryRules.playoffQualifiedTeams ?? current.playoffQualifiedTeams,
+            finalStageRoundOf16Enabled:
+              refreshedCategoryRules.finalStageRoundOf16Enabled ?? current.finalStageRoundOf16Enabled,
+            finalStageRoundOf8Enabled: refreshedCategoryRules.finalStageRoundOf8Enabled ?? current.finalStageRoundOf8Enabled,
+            finalStageQuarterFinalsEnabled:
+              refreshedCategoryRules.finalStageQuarterFinalsEnabled ?? current.finalStageQuarterFinalsEnabled,
+            finalStageSemiFinalsEnabled: refreshedCategoryRules.finalStageSemiFinalsEnabled ?? current.finalStageSemiFinalsEnabled,
+            finalStageFinalEnabled: refreshedCategoryRules.finalStageFinalEnabled ?? current.finalStageFinalEnabled,
+            finalStageTwoLegged: baseFinalTwoLegged,
+            finalStageRoundOf16TwoLegged:
+              refreshedCategoryRules.finalStageRoundOf16TwoLegged ?? current.finalStageRoundOf16TwoLegged,
+            finalStageRoundOf8TwoLegged:
+              refreshedCategoryRules.finalStageRoundOf8TwoLegged ?? current.finalStageRoundOf8TwoLegged,
+            finalStageQuarterFinalsTwoLegged:
+              refreshedCategoryRules.finalStageQuarterFinalsTwoLegged ?? current.finalStageQuarterFinalsTwoLegged,
+            finalStageSemiFinalsTwoLegged:
+              refreshedCategoryRules.finalStageSemiFinalsTwoLegged ?? current.finalStageSemiFinalsTwoLegged,
+            finalStageFinalTwoLegged:
+              refreshedCategoryRules.finalStageFinalTwoLegged
+              ?? refreshedCategoryRules.finalStageTwoLegged
+              ?? refreshedCategoryRules.playoffHomeAway
+              ?? current.finalStageFinalTwoLegged,
+            doubleRoundRobin: refreshedCategoryRules.doubleRoundRobin ?? current.doubleRoundRobin,
+            regularSeasonRounds: refreshedCategoryRules.regularSeasonRounds ?? current.regularSeasonRounds,
+          }
         })
       }
 
