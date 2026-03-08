@@ -1514,12 +1514,8 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       recentYellow: boolean
       recentRed: boolean
     }>()
-    if (!liveForSelected) return map
-
-    liveForSelected.events.forEach((event) => {
-      if (!event.playerId) return
-
-      const current = map.get(event.playerId) ?? {
+    const applyToPlayer = (playerId: string, eventType: LiveEvent['type'], isRecent: boolean) => {
+      const current = map.get(playerId) ?? {
         goals: 0,
         penaltyMisses: 0,
         yellows: 0,
@@ -1529,21 +1525,20 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
         recentYellow: false,
         recentRed: false,
       }
-      const isRecent = liveElapsedSeconds - event.elapsedSeconds <= 18
 
-      if (event.type === 'goal' || event.type === 'penalty_goal') {
+      if (eventType === 'goal' || eventType === 'penalty_goal') {
         current.goals += 1
         if (isRecent) current.recentGoal = true
       }
-      if (event.type === 'penalty_miss') {
+      if (eventType === 'penalty_miss') {
         current.penaltyMisses += 1
         if (isRecent) current.recentPenaltyMiss = true
       }
-      if (event.type === 'yellow') {
+      if (eventType === 'yellow') {
         current.yellows += 1
         if (isRecent) current.recentYellow = true
       }
-      if (event.type === 'double_yellow') {
+      if (eventType === 'double_yellow') {
         current.yellows += 1
         current.reds += 1
         if (isRecent) {
@@ -1551,16 +1546,52 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
           current.recentRed = true
         }
       }
-      if (event.type === 'red') {
+      if (eventType === 'red') {
         current.reds += 1
         if (isRecent) current.recentRed = true
       }
 
-      map.set(event.playerId, current)
-    })
+      map.set(playerId, current)
+    }
+
+    if (liveForSelected) {
+      liveForSelected.events.forEach((event) => {
+        if (!event.playerId) return
+        const isRecent = liveElapsedSeconds - event.elapsedSeconds <= 18
+        applyToPlayer(event.playerId, event.type, isRecent)
+      })
+      return map
+    }
+
+    if (selectedMatchHistory?.record && selectedMatch && fixturePayload) {
+      const homeName = normalizeLabel(selectedMatchHistory.reverse ? selectedMatchHistory.record.awayTeamName : selectedMatchHistory.record.homeTeamName)
+      const awayName = normalizeLabel(selectedMatchHistory.reverse ? selectedMatchHistory.record.homeTeamName : selectedMatchHistory.record.awayTeamName)
+      const selectedHomeTeamRoster = fixturePayload.teams.find((team) => team.id === selectedMatch.homeTeamId)
+      const selectedAwayTeamRoster = fixturePayload.teams.find((team) => team.id === selectedMatch.awayTeamId)
+
+      const findPlayerIdByEvent = (teamName: string, playerName: string) => {
+        const normalizedTeam = normalizeLabel(teamName)
+        const normalizedPlayer = normalizeLabel(playerName)
+        const teamPlayers = normalizedTeam === homeName
+          ? (selectedHomeTeamRoster?.players ?? [])
+          : normalizedTeam === awayName
+            ? (selectedAwayTeamRoster?.players ?? [])
+            : []
+        if (teamPlayers.length === 0) return ''
+
+        const player = teamPlayers.find((item) => normalizeLabel(item.name) === normalizedPlayer)
+        return player?.id ?? ''
+      }
+
+      selectedMatchHistory.record.events.forEach((event) => {
+        const playerId = findPlayerIdByEvent(event.teamName, event.playerName)
+        if (!playerId) return
+        applyToPlayer(playerId, event.type, false)
+      })
+    }
 
     return map
-  }, [liveElapsedSeconds, liveForSelected])
+  }, [fixturePayload, liveElapsedSeconds, liveForSelected, selectedMatch, selectedMatchHistory])
 
   const scoreboard = useMemo(() => {
     if (liveForSelected) {
@@ -1732,6 +1763,44 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
         })
     }
 
+    if (!liveForSelected && selectedMatchHistory?.record) {
+      const homeName = normalizeLabel(selectedMatchHistory.reverse ? selectedMatchHistory.record.awayTeamName : selectedMatchHistory.record.homeTeamName)
+      const awayName = normalizeLabel(selectedMatchHistory.reverse ? selectedMatchHistory.record.homeTeamName : selectedMatchHistory.record.awayTeamName)
+
+      const findInLineup = (lineup: typeof homeLineup, playerName: string) => {
+        if (!lineup) return ''
+        const normalizedPlayer = normalizeLabel(playerName)
+        const player = lineup.allPlayers.find((item) => normalizeLabel(item.name) === normalizedPlayer)
+        return player?.id ?? ''
+      }
+
+      const parseMinute = (clock: string) => {
+        const raw = Number(clock.split(':')[0] ?? '0')
+        return Number.isFinite(raw) ? raw : 0
+      }
+
+      selectedMatchHistory.record.events
+        .filter((event) => event.type === 'substitution')
+        .forEach((event, index) => {
+          const normalizedTeam = normalizeLabel(event.teamName)
+          const isHomeTeam = normalizedTeam === homeName
+          const lineup = isHomeTeam ? homeLineup : normalizedTeam === awayName ? awayLineup : null
+          if (!lineup) return
+
+          const outPlayerId = findInLineup(lineup, event.playerName)
+          if (!outPlayerId) return
+
+          const teamEntry = ensure(lineup.id)
+          teamEntry.outPlayerIds.add(outPlayerId)
+          teamEntry.timeline.push({
+            id: `history-sub-${selectedMatchHistory.record.matchId}-${index}`,
+            minute: parseMinute(event.clock),
+            clock: event.clock,
+            outPlayerId,
+          })
+        })
+    }
+
     return byTeam
   }, [
     awayLineup,
@@ -1740,6 +1809,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     liveForSelected,
     savedAwayLineup?.starters,
     savedHomeLineup?.starters,
+    selectedMatchHistory,
     selectedMatch,
   ])
 
