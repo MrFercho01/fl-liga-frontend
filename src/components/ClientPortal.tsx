@@ -81,6 +81,7 @@ interface PublicFixturePayload {
       type: LiveEvent['type']
       teamName: string
       playerName: string
+      substitutionInPlayerName?: string
       staffRole?: 'director' | 'assistant'
     }>
     playerOfMatchId?: string
@@ -1706,7 +1707,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     const byTeam = new Map<string, {
       outPlayerIds: Set<string>
       inPlayerIds: Set<string>
-      timeline: Array<{ id: string; minute: number; clock: string; outPlayerId: string }>
+      timeline: Array<{ id: string; minute: number; clock: string; outPlayerId: string; inPlayerId?: string }>
     }>()
 
     const ensure = (teamId: string) => {
@@ -1715,7 +1716,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       const next = {
         outPlayerIds: new Set<string>(),
         inPlayerIds: new Set<string>(),
-        timeline: [] as Array<{ id: string; minute: number; clock: string; outPlayerId: string }>,
+        timeline: [] as Array<{ id: string; minute: number; clock: string; outPlayerId: string; inPlayerId?: string }>,
       }
       byTeam.set(teamId, next)
       return next
@@ -1759,7 +1760,11 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
             minute: event.minute,
             clock: event.clock,
             outPlayerId: event.playerId,
+            ...(event.substitutionInPlayerId ? { inPlayerId: event.substitutionInPlayerId } : {}),
           })
+          if (event.substitutionInPlayerId) {
+            teamEntry.inPlayerIds.add(event.substitutionInPlayerId)
+          }
         })
     }
 
@@ -1789,14 +1794,19 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
 
           const outPlayerId = findInLineup(lineup, event.playerName)
           if (!outPlayerId) return
+          const inPlayerId = event.substitutionInPlayerName ? findInLineup(lineup, event.substitutionInPlayerName) : ''
 
           const teamEntry = ensure(lineup.id)
           teamEntry.outPlayerIds.add(outPlayerId)
+          if (inPlayerId) {
+            teamEntry.inPlayerIds.add(inPlayerId)
+          }
           teamEntry.timeline.push({
             id: `history-sub-${selectedMatchHistory.record.matchId}-${index}`,
             minute: parseMinute(event.clock),
             clock: event.clock,
             outPlayerId,
+            ...(inPlayerId ? { inPlayerId } : {}),
           })
         })
     }
@@ -1814,12 +1824,12 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   ])
 
   const homeSubstitutionData = useMemo(
-    () => substitutionDataByTeam.get(homeLineup?.id ?? '') ?? { outPlayerIds: new Set<string>(), inPlayerIds: new Set<string>(), timeline: [] as Array<{ id: string; minute: number; clock: string; outPlayerId: string }> },
+    () => substitutionDataByTeam.get(homeLineup?.id ?? '') ?? { outPlayerIds: new Set<string>(), inPlayerIds: new Set<string>(), timeline: [] as Array<{ id: string; minute: number; clock: string; outPlayerId: string; inPlayerId?: string }> },
     [homeLineup?.id, substitutionDataByTeam],
   )
 
   const awaySubstitutionData = useMemo(
-    () => substitutionDataByTeam.get(awayLineup?.id ?? '') ?? { outPlayerIds: new Set<string>(), inPlayerIds: new Set<string>(), timeline: [] as Array<{ id: string; minute: number; clock: string; outPlayerId: string }> },
+    () => substitutionDataByTeam.get(awayLineup?.id ?? '') ?? { outPlayerIds: new Set<string>(), inPlayerIds: new Set<string>(), timeline: [] as Array<{ id: string; minute: number; clock: string; outPlayerId: string; inPlayerId?: string }> },
     [awayLineup?.id, substitutionDataByTeam],
   )
 
@@ -1854,7 +1864,14 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
           const actorName = event.staffRole
             ? `${staffRoleLabel(event.staffRole)} ${team.technicalStaff?.[event.staffRole]?.name ?? 'Sin registrar'}`
             : event.playerId
-              ? (team.players.find((item) => item.id === event.playerId)?.name ?? 'Sin jugador')
+              ? (() => {
+                const outName = team.players.find((item) => item.id === event.playerId)?.name ?? 'Sin jugador'
+                if (event.type !== 'substitution') return outName
+                const inName = event.substitutionInPlayerId
+                  ? (team.players.find((item) => item.id === event.substitutionInPlayerId)?.name ?? 'Sin jugador')
+                  : ''
+                return inName ? `${outName} ↘ · ${inName} ↗` : `${outName} ↘`
+              })()
               : 'Sin jugador'
           return {
             id: event.id,
@@ -1879,64 +1896,59 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       }))
   }, [liveForSelected, selectedMatch, selectedMatchHistory])
 
-  const goalScorers = useMemo(() => {
-    if (!liveForSelected) {
-      if (!selectedMatchHistory?.record) {
-        return { home: [] as string[], away: [] as string[] }
-      }
+  const goalTimelineRows = useMemo(() => {
+    if (liveForSelected) {
+      return liveForSelected.events
+        .slice()
+        .reverse()
+        .filter((event) => event.type === 'goal' || event.type === 'penalty_goal')
+        .map((event) => {
+          const isHomeTeam = event.teamId === liveForSelected.homeTeam.id
+          const team = isHomeTeam ? liveForSelected.homeTeam : liveForSelected.awayTeam
+          const playerName = event.playerId
+            ? (team.players.find((player) => player.id === event.playerId)?.name ?? 'Sin jugadora')
+            : 'Sin jugadora'
 
-      const homeName = selectedMatchHistory.reverse ? selectedMatchHistory.record.awayTeamName : selectedMatchHistory.record.homeTeamName
-      const awayName = selectedMatchHistory.reverse ? selectedMatchHistory.record.homeTeamName : selectedMatchHistory.record.awayTeamName
-
-      const aggregateFromHistory = (teamName: string) => {
-        const counts = new Map<string, number>()
-        selectedMatchHistory.record.events.forEach((event) => {
-          if ((event.type !== 'goal' && event.type !== 'penalty_goal') || normalizeLabel(event.teamName) !== normalizeLabel(teamName)) return
-          counts.set(event.playerName, (counts.get(event.playerName) ?? 0) + 1)
+          return {
+            id: `goal-live-${event.id}`,
+            minute: `${event.minute}'`,
+            clock: event.clock,
+            teamName: team.name,
+            playerName,
+            isPenalty: event.type === 'penalty_goal',
+            isHomeTeam,
+          }
         })
-
-        return Array.from(counts.entries())
-          .sort((left, right) => left[0].localeCompare(right[0], 'es', { sensitivity: 'base' }))
-          .map(([playerName, goals]) => (goals > 1 ? `${playerName} x${goals}` : playerName))
-      }
-
-      return {
-        home: aggregateFromHistory(homeName),
-        away: aggregateFromHistory(awayName),
-      }
     }
 
-    const aggregate = (teamId: string, teamPlayers: Array<{ id: string; name: string }>) => {
-      const counts = new Map<string, { name: string; total: number }>()
-      const orderedIds: string[] = []
+    if (!selectedMatchHistory?.record) return [] as Array<{
+      id: string
+      minute: string
+      clock: string
+      teamName: string
+      playerName: string
+      isPenalty: boolean
+      isHomeTeam: boolean
+    }>
 
-      liveForSelected.events.slice().reverse().forEach((event) => {
-        if ((event.type !== 'goal' && event.type !== 'penalty_goal') || !event.playerId || event.teamId !== teamId) return
+    const homeName = selectedMatchHistory.reverse ? selectedMatchHistory.record.awayTeamName : selectedMatchHistory.record.homeTeamName
 
-        const playerName = teamPlayers.find((player) => player.id === event.playerId)?.name ?? 'Sin jugador'
-        const current = counts.get(event.playerId)
-        if (!current) {
-          counts.set(event.playerId, { name: playerName, total: 1 })
-          orderedIds.push(event.playerId)
-          return
+    return selectedMatchHistory.record.events
+      .filter((event) => event.type === 'goal' || event.type === 'penalty_goal')
+      .map((event, index) => {
+        const parsedMinute = Number(event.clock.split(':')[0] ?? '0')
+        const minute = Number.isFinite(parsedMinute) ? `${parsedMinute}'` : '0\''
+
+        return {
+          id: `goal-history-${selectedMatchHistory.record.matchId}-${index}`,
+          minute,
+          clock: event.clock,
+          teamName: event.teamName,
+          playerName: event.playerName,
+          isPenalty: event.type === 'penalty_goal',
+          isHomeTeam: normalizeLabel(event.teamName) === normalizeLabel(homeName),
         }
-
-        current.total += 1
       })
-
-      return orderedIds
-        .map((playerId) => {
-          const scorer = counts.get(playerId)
-          if (!scorer) return ''
-          return scorer.total > 1 ? `${scorer.name} x${scorer.total}` : scorer.name
-        })
-        .filter(Boolean)
-    }
-
-    return {
-      home: aggregate(liveForSelected.homeTeam.id, liveForSelected.homeTeam.players),
-      away: aggregate(liveForSelected.awayTeam.id, liveForSelected.awayTeam.players),
-    }
   }, [liveForSelected, selectedMatchHistory])
 
   useEffect(() => {
@@ -2841,9 +2853,6 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                 <div className="mb-3 grid gap-2 lg:grid-cols-[1fr_auto_1fr]">
                   <div className="space-y-2">
                     <TeamBadge logoUrl={homeLineup.logoUrl} name={homeLineup.name} />
-                    <p className="-mt-1 text-[10px] text-slate-200">
-                      {goalScorers.home.length > 0 ? `Goles: ${goalScorers.home.join(', ')}` : 'Goles: —'}
-                    </p>
                     <StaffCard
                       side="home"
                       teamName={homeLineup.name}
@@ -2903,9 +2912,6 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                   </div>
                   <div className="space-y-2">
                     <TeamBadge logoUrl={awayLineup.logoUrl} name={awayLineup.name} />
-                    <p className="-mt-1 text-[10px] text-slate-200">
-                      {goalScorers.away.length > 0 ? `Goles: ${goalScorers.away.join(', ')}` : 'Goles: —'}
-                    </p>
                     <StaffCard
                       side="away"
                       teamName={awayLineup.name}
@@ -3105,9 +3111,12 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                         {homeSubstitutionData.timeline.length === 0 && <p className="text-slate-400">Sin cambios registrados.</p>}
                         {homeSubstitutionData.timeline.map((entry) => {
                           const outName = homeLineup.allPlayers.find((player) => player.id === entry.outPlayerId)?.name ?? entry.outPlayerId
+                          const inName = entry.inPlayerId
+                            ? (homeLineup.allPlayers.find((player) => player.id === entry.inPlayerId)?.name ?? entry.inPlayerId)
+                            : 'Cambio'
                           return (
                             <p key={entry.id} className="rounded border border-white/10 bg-slate-800/80 px-2 py-1">
-                              {entry.minute}' · {entry.clock} · <span className="text-rose-300">↘ {outName}</span> · <span className="text-emerald-300">↗ Cambio</span>
+                              {entry.minute}' · {entry.clock} · <span className="text-rose-300">↘ {outName}</span> · <span className="text-emerald-300">↗ {inName}</span>
                             </p>
                           )
                         })}
@@ -3163,9 +3172,12 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                         {awaySubstitutionData.timeline.length === 0 && <p className="text-slate-400">Sin cambios registrados.</p>}
                         {awaySubstitutionData.timeline.map((entry) => {
                           const outName = awayLineup.allPlayers.find((player) => player.id === entry.outPlayerId)?.name ?? entry.outPlayerId
+                          const inName = entry.inPlayerId
+                            ? (awayLineup.allPlayers.find((player) => player.id === entry.inPlayerId)?.name ?? entry.inPlayerId)
+                            : 'Cambio'
                           return (
                             <p key={entry.id} className="rounded border border-white/10 bg-slate-800/80 px-2 py-1">
-                              {entry.minute}' · {entry.clock} · <span className="text-rose-300">↘ {outName}</span> · <span className="text-emerald-300">↗ Cambio</span>
+                              {entry.minute}' · {entry.clock} · <span className="text-rose-300">↘ {outName}</span> · <span className="text-emerald-300">↗ {inName}</span>
                             </p>
                           )
                         })}
@@ -3201,7 +3213,92 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                 </p>
 
                 <div
-                  className="mt-3 h-[380px] overflow-auto rounded-xl border p-2 text-xs"
+                  className="mt-3 rounded-xl border p-2 text-xs"
+                  style={{
+                    borderColor: withAlpha('#ffffff', 0.15),
+                    backgroundColor: withAlpha('#020617', 0.7),
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold text-slate-200">Tabla de goles</p>
+                    <span className="rounded border border-white/20 bg-slate-900/70 px-2 py-0.5 text-[10px] text-slate-300">
+                      {goalTimelineRows.length} {goalTimelineRows.length === 1 ? 'gol' : 'goles'}
+                    </span>
+                  </div>
+
+                  {goalTimelineRows.length === 0 ? (
+                    <p className="mt-2 rounded border border-dashed border-white/20 bg-slate-900/60 px-2 py-1.5 text-[11px] text-slate-400">
+                      Aún no hay goles registrados.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="mt-2 space-y-1 md:hidden">
+                        {goalTimelineRows.map((row) => {
+                          const palette = row.isHomeTeam ? homePalette : awayPalette
+                          const textColor = pickReadableEventTextColor(palette.fill, 0.24)
+                          return (
+                            <div
+                              key={row.id}
+                              className="rounded border px-2 py-1.5"
+                              style={{
+                                borderColor: withAlpha(palette.fill, 0.5),
+                                backgroundColor: withAlpha(palette.fill, 0.18),
+                                color: textColor,
+                              }}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold">{row.minute}</span>
+                                <span className="text-[10px] opacity-85">{row.clock}</span>
+                              </div>
+                              <p className="mt-1 truncate text-[11px] font-semibold">⚽ {row.playerName}</p>
+                              <p className="truncate text-[10px] opacity-90">{row.teamName}{row.isPenalty ? ' · Penal' : ''}</p>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      <div className="mt-2 hidden overflow-auto rounded border border-white/10 md:block">
+                        <table className="min-w-full text-[11px] text-slate-100">
+                          <thead className="bg-slate-900/70 text-slate-300">
+                            <tr>
+                              <th className="px-2 py-1 text-left font-semibold">Min</th>
+                              <th className="px-2 py-1 text-left font-semibold">Equipo</th>
+                              <th className="px-2 py-1 text-left font-semibold">Goleadora</th>
+                              <th className="px-2 py-1 text-left font-semibold">Tipo</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {goalTimelineRows.map((row) => {
+                              const palette = row.isHomeTeam ? homePalette : awayPalette
+                              const textColor = pickReadableEventTextColor(palette.fill, 0.24)
+                              return (
+                                <tr key={row.id} className="border-t border-white/10">
+                                  <td className="px-2 py-1.5 text-slate-200">{row.minute}</td>
+                                  <td className="px-2 py-1.5">
+                                    <span
+                                      className="inline-flex max-w-[180px] truncate rounded px-1.5 py-0.5 font-semibold"
+                                      style={{
+                                        backgroundColor: withAlpha(palette.fill, 0.25),
+                                        color: textColor,
+                                      }}
+                                    >
+                                      {row.teamName}
+                                    </span>
+                                  </td>
+                                  <td className="px-2 py-1.5 text-white">{row.playerName}</td>
+                                  <td className="px-2 py-1.5 text-slate-300">{row.isPenalty ? 'Penal' : 'Juego'}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div
+                  className="mt-3 h-[340px] overflow-auto rounded-xl border p-2 text-xs"
                   style={{
                     borderColor: withAlpha('#ffffff', 0.15),
                     backgroundColor: withAlpha('#020617', 0.78),

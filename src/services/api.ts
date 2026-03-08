@@ -616,6 +616,7 @@ export const apiService = {
           type: 'shot' | 'goal' | 'penalty_goal' | 'penalty_miss' | 'yellow' | 'red' | 'double_yellow' | 'assist' | 'substitution'
           teamName: string
           playerName: string
+          substitutionInPlayerName?: string
         }>
         homeLineup?: {
           starters: string[]
@@ -689,6 +690,7 @@ export const apiService = {
               type: 'shot' | 'goal' | 'penalty_goal' | 'penalty_miss' | 'yellow' | 'red' | 'double_yellow' | 'assist' | 'substitution'
               teamName: string
               playerName: string
+              substitutionInPlayerName?: string
             }>
             homeLineup?: {
               starters: string[]
@@ -815,12 +817,19 @@ export const apiService = {
       | 'staff_red',
     playerId: string | null,
     staffRole?: LiveStaffRole,
+    substitutionInPlayerId?: string,
   ): Promise<ApiResponse<LiveMatch>> {
     try {
       const response = await apiFetch(`${apiBaseUrl}/api/admin/live/events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamId, type, playerId, ...(staffRole ? { staffRole } : {}) }),
+        body: JSON.stringify({
+          teamId,
+          type,
+          playerId,
+          ...(staffRole ? { staffRole } : {}),
+          ...(substitutionInPlayerId ? { substitutionInPlayerId } : {}),
+        }),
       })
       const responsePayload = (await response.json()) as { message?: string; data?: LiveMatch }
       if (!response.ok) {

@@ -67,6 +67,7 @@ export interface LiveEvent {
   timestamp: string
   teamId: string
   playerId: string | null
+  substitutionInPlayerId?: string
   type:
     | 'shot'
     | 'goal'

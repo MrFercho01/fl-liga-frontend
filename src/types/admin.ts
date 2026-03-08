@@ -260,6 +260,7 @@ export interface PlayedMatchRecord {
       | 'staff_red'
     teamName: string
     playerName: string
+    substitutionInPlayerName?: string
     staffRole?: 'director' | 'assistant'
   }>
   highlightVideos: Array<{

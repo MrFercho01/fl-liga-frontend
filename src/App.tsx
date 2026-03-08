@@ -18,7 +18,7 @@ import type {
   UserWithLeagues,
 } from './types/admin.ts'
 import type { League } from './types/league'
-import type { LiveMatch, LivePlayer, LiveStaffRole, LiveTeam } from './types/live'
+import type { LiveEvent, LiveMatch, LivePlayer, LiveStaffRole, LiveTeam } from './types/live'
 
 const leagueTitle = 'FL League'
 const authUserStorageKey = '@fl_liga_auth_user'
@@ -956,6 +956,20 @@ function App() {
     return map
   }, [liveMatch])
 
+  const substitutedInByTeam = useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    if (!liveMatch) return map
+
+    liveMatch.events.forEach((event) => {
+      if (event.type !== 'substitution' || !event.substitutionInPlayerId) return
+      const current = map.get(event.teamId) ?? new Set<string>()
+      current.add(event.substitutionInPlayerId)
+      map.set(event.teamId, current)
+    })
+
+    return map
+  }, [liveMatch])
+
   const selectedTeamSubstitutedOut = useMemo(() => {
     if (!selectedTeam) return new Set<string>()
     return substitutedOutByTeam.get(selectedTeam.id) ?? new Set<string>()
@@ -971,10 +985,10 @@ function App() {
     return substitutionTimelineByTeam[selectedTeam.id] ?? []
   }, [selectedTeam, substitutionTimelineByTeam])
 
-  const selectedTeamSubstitutedIn = useMemo(
-    () => new Set<string>(selectedTeamSubstitutionVisual.inPlayerIds),
-    [selectedTeamSubstitutionVisual.inPlayerIds],
-  )
+  const selectedTeamSubstitutedIn = useMemo(() => {
+    const eventTracked = selectedTeam ? substitutedInByTeam.get(selectedTeam.id) : null
+    return new Set<string>([...(eventTracked ? Array.from(eventTracked) : []), ...selectedTeamSubstitutionVisual.inPlayerIds])
+  }, [selectedTeam, selectedTeamSubstitutionVisual.inPlayerIds, substitutedInByTeam])
 
   const substituteVisualIds = useMemo(() => {
     if (!selectedTeam) return [] as string[]
@@ -1047,7 +1061,10 @@ function App() {
 
   const staffRoleLabel = (role: LiveStaffRole) => (role === 'director' ? 'DT' : 'AT')
 
-  const resolveEventActorLabel = useCallback((team: LiveTeam, event: { playerId: string | null; staffRole?: LiveStaffRole }) => {
+  const resolveEventActorLabel = useCallback((
+    team: LiveTeam,
+    event: { playerId: string | null; staffRole?: LiveStaffRole; type?: LiveEvent['type']; substitutionInPlayerId?: string },
+  ) => {
     if (event.staffRole) {
       const staffName = team.technicalStaff?.[event.staffRole]?.name?.trim() || 'Sin registrar'
       return `${staffRoleLabel(event.staffRole)} ${staffName}`
@@ -1055,7 +1072,17 @@ function App() {
 
     if (!event.playerId) return 'Sin jugador'
     const player = team.players.find((item) => item.id === event.playerId)
-    return player?.name ?? 'Sin jugador'
+    const outPlayerName = player?.name ?? 'Sin jugador'
+
+    if (event.type === 'substitution') {
+      const inPlayerName = event.substitutionInPlayerId
+        ? (team.players.find((item) => item.id === event.substitutionInPlayerId)?.name ?? 'Sin jugador')
+        : ''
+
+      return inPlayerName ? `${outPlayerName} ↘ · ${inPlayerName} ↗` : `${outPlayerName} ↘`
+    }
+
+    return outPlayerName
   }, [])
 
   const resolveLiveTeamById = useCallback(
@@ -1920,7 +1947,7 @@ function App() {
       return
     }
 
-    const eventResponse = await apiService.registerLiveEvent(selectedTeam.id, 'substitution', outgoingPlayerId)
+    const eventResponse = await apiService.registerLiveEvent(selectedTeam.id, 'substitution', outgoingPlayerId, undefined, incomingPlayerId)
     if (!eventResponse.ok) {
       applyActionFeedback(false, '', eventResponse.message)
       return
@@ -2281,7 +2308,7 @@ function App() {
   )
 
   const selectedPlayedHistoryIndicators = useMemo(() => {
-    const map = new Map<string, { goals: number; penaltyMisses: number; yellows: number; reds: number; substitutedOut: boolean }>()
+    const map = new Map<string, { goals: number; penaltyMisses: number; yellows: number; reds: number; substitutedOut: boolean; substitutedIn: boolean }>()
     if (!selectedPlayedStatsScoped) return map
 
     const homeName = normalizeLabel(selectedPlayedStatsScoped.homeTeamName)
@@ -2305,7 +2332,14 @@ function App() {
       const playerId = resolvePlayerId(event.teamName, event.playerName)
       if (!playerId) return
 
-      const current = map.get(playerId) ?? { goals: 0, penaltyMisses: 0, yellows: 0, reds: 0, substitutedOut: false }
+      const current = map.get(playerId) ?? {
+        goals: 0,
+        penaltyMisses: 0,
+        yellows: 0,
+        reds: 0,
+        substitutedOut: false,
+        substitutedIn: false,
+      }
 
       if (event.type === 'goal' || event.type === 'penalty_goal') current.goals += 1
       if (event.type === 'penalty_miss') current.penaltyMisses += 1
@@ -2318,6 +2352,22 @@ function App() {
       if (event.type === 'substitution') current.substitutedOut = true
 
       map.set(playerId, current)
+
+      if (event.type === 'substitution' && event.substitutionInPlayerName) {
+        const inPlayerId = resolvePlayerId(event.teamName, event.substitutionInPlayerName)
+        if (!inPlayerId) return
+
+        const inCurrent = map.get(inPlayerId) ?? {
+          goals: 0,
+          penaltyMisses: 0,
+          yellows: 0,
+          reds: 0,
+          substitutedOut: false,
+          substitutedIn: false,
+        }
+        inCurrent.substitutedIn = true
+        map.set(inPlayerId, inCurrent)
+      }
     })
 
     return map
@@ -3484,12 +3534,16 @@ function App() {
       events: liveMatch.events.map((event) => {
         const team = event.teamId === liveMatch.homeTeam.id ? liveMatch.homeTeam : liveMatch.awayTeam
         const actorLabel = resolveEventActorLabel(team, event)
+        const incomingPlayerName = event.substitutionInPlayerId
+          ? (team.players.find((item) => item.id === event.substitutionInPlayerId)?.name ?? '')
+          : ''
 
         return {
           clock: event.clock,
           type: event.type,
           teamName: team.name,
           playerName: actorLabel,
+          ...(incomingPlayerName ? { substitutionInPlayerName: incomingPlayerName } : {}),
           ...(event.staffRole ? { staffRole: event.staffRole } : {}),
         }
       }),
@@ -5146,7 +5200,7 @@ function App() {
                     {(selectedPlayedHomeLineupVisual.length > 0 || selectedPlayedAwayLineupVisual.length > 0) && (
                       <div className="mt-3 rounded border border-emerald-300/20 bg-emerald-900/20 p-3">
                         <p className="text-xs font-semibold text-emerald-100">Cancha · reconstrucción de eventos</p>
-                        <p className="mt-1 text-[11px] text-emerald-100/80">Se muestran goles, TA/TR, penal fallado y cambio (salió) sobre titulares guardados.</p>
+                        <p className="mt-1 text-[11px] text-emerald-100/80">Se muestran goles, TA/TR, penal fallado y cambios (↘ salió, ↗ entró) sobre titulares guardados.</p>
 
                         <div className="relative mt-3 overflow-hidden rounded-xl border border-white/20 bg-emerald-700/75 p-3">
                           <div className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(0deg,rgba(255,255,255,0.04)_0px,rgba(255,255,255,0.04)_30px,rgba(0,0,0,0.04)_30px,rgba(0,0,0,0.04)_60px)]" />
@@ -5174,6 +5228,7 @@ function App() {
                                       if (indicator?.yellows) badges.push(`TA${indicator.yellows > 1 ? `x${indicator.yellows}` : ''}`)
                                       if (indicator?.reds) badges.push(`TR${indicator.reds > 1 ? `x${indicator.reds}` : ''}`)
                                       if (indicator?.substitutedOut) badges.push('↘')
+                                      if (indicator?.substitutedIn) badges.push('↗')
 
                                       return (
                                         <div key={player.id} className="min-w-0 text-center">
@@ -5208,6 +5263,7 @@ function App() {
                                       if (indicator?.yellows) badges.push(`TA${indicator.yellows > 1 ? `x${indicator.yellows}` : ''}`)
                                       if (indicator?.reds) badges.push(`TR${indicator.reds > 1 ? `x${indicator.reds}` : ''}`)
                                       if (indicator?.substitutedOut) badges.push('↘')
+                                      if (indicator?.substitutedIn) badges.push('↗')
 
                                       return (
                                         <div key={player.id} className="min-w-0 text-center">
