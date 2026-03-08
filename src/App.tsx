@@ -62,6 +62,14 @@ interface FormationOption {
   lines: number[]
 }
 
+interface SubstitutionTimelineEntry {
+  id: string
+  clock: string
+  minute: number
+  outPlayerId: string
+  inPlayerId: string
+}
+
 type HistoryTabKey = 'standings' | 'scorers' | 'assists' | 'yellows' | 'reds'
 
 const buildFormationOptions = (playersOnField: number): FormationOption[] => {
@@ -350,6 +358,9 @@ function App() {
   const [substitutionInPlayerId, setSubstitutionInPlayerId] = useState('')
   const [substitutionVisualByTeam, setSubstitutionVisualByTeam] = useState<
     Record<string, { outPlayerIds: string[]; inPlayerIds: string[] }>
+  >({})
+  const [substitutionTimelineByTeam, setSubstitutionTimelineByTeam] = useState<
+    Record<string, SubstitutionTimelineEntry[]>
   >({})
   const [historySeasonFilter, setHistorySeasonFilter] = useState<number>(2026)
   const [activeHistoryTab, setActiveHistoryTab] = useState<HistoryTabKey>('standings')
@@ -891,6 +902,11 @@ function App() {
     if (!selectedTeam) return { outPlayerIds: [] as string[], inPlayerIds: [] as string[] }
     return substitutionVisualByTeam[selectedTeam.id] ?? { outPlayerIds: [] as string[], inPlayerIds: [] as string[] }
   }, [selectedTeam, substitutionVisualByTeam])
+
+  const selectedTeamSubstitutionTimeline = useMemo(() => {
+    if (!selectedTeam) return [] as SubstitutionTimelineEntry[]
+    return substitutionTimelineByTeam[selectedTeam.id] ?? []
+  }, [selectedTeam, substitutionTimelineByTeam])
 
   const selectedTeamSubstitutedIn = useMemo(
     () => new Set<string>(selectedTeamSubstitutionVisual.inPlayerIds),
@@ -1528,6 +1544,7 @@ function App() {
         setSubstitutionInPlayerId('')
         setSelectedMvpPlayerId('')
         setSubstitutionVisualByTeam({})
+        setSubstitutionTimelineByTeam({})
       }
     }
     const labels: Record<'start' | 'stop' | 'reset' | 'finish', string> = {
@@ -1858,6 +1875,21 @@ function App() {
           outPlayerIds: Array.from(new Set([...teamEntry.outPlayerIds, outgoingPlayerId])),
           inPlayerIds: Array.from(new Set([...teamEntry.inPlayerIds, incomingPlayerId])),
         },
+      }
+    })
+    setSubstitutionTimelineByTeam((current) => {
+      const teamTimeline = current[selectedTeam.id] ?? []
+      const timelineEntry: SubstitutionTimelineEntry = {
+        id: `${Date.now()}-${outgoingPlayerId}-${incomingPlayerId}`,
+        clock: formatTimer(liveElapsedSeconds),
+        minute: liveCurrentMinute,
+        outPlayerId: outgoingPlayerId,
+        inPlayerId: incomingPlayerId,
+      }
+
+      return {
+        ...current,
+        [selectedTeam.id]: [...teamTimeline, timelineEntry].slice(-30),
       }
     })
     applyActionFeedback(true, 'Cambio registrado correctamente', '')
@@ -3176,6 +3208,7 @@ function App() {
     setLineupSubstitutes(response.data.homeTeam.substitutes)
     setSettingsDraft(response.data.settings)
     setSubstitutionVisualByTeam({})
+    setSubstitutionTimelineByTeam({})
     setSelectedMvpPlayerId('')
     setSecondHalfStarted(false)
     applyActionFeedback(true, 'Partido cargado para iniciar en vivo', '')
@@ -5464,6 +5497,28 @@ function App() {
                     >
                       Registrar cambio
                     </button>
+
+                    <div className="mt-3 rounded border border-white/10 bg-slate-900/70 p-2">
+                      <p className="text-[11px] font-semibold text-slate-200">Timeline de cambios</p>
+                      <div className="mt-2 max-h-28 space-y-1 overflow-auto pr-1 text-[11px] text-slate-300">
+                        {selectedTeamSubstitutionTimeline.length === 0 && (
+                          <p className="text-slate-400">Sin cambios registrados para este equipo.</p>
+                        )}
+                        {selectedTeamSubstitutionTimeline
+                          .slice()
+                          .reverse()
+                          .map((entry) => {
+                            const outName = playerMap.get(entry.outPlayerId)?.name ?? entry.outPlayerId
+                            const inName = playerMap.get(entry.inPlayerId)?.name ?? entry.inPlayerId
+
+                            return (
+                              <p key={entry.id} className="rounded border border-white/10 bg-slate-800/80 px-2 py-1">
+                                {entry.minute}' · {entry.clock} · <span className="text-rose-300">↘ {outName}</span> · <span className="text-emerald-300">↗ {inName}</span>
+                              </p>
+                            )
+                          })}
+                      </div>
+                    </div>
                   </div>
 
                   <button type="button" onClick={saveLineup} disabled={liveIsFinished} className="w-full rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-500 disabled:cursor-not-allowed disabled:opacity-50">
