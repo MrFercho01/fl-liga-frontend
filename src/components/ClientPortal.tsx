@@ -998,6 +998,11 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     }
   }, [fixturePayload, selectedRound])
 
+  const awardBurstColor = useMemo(() => {
+    const themeColor = fixturePayload?.league.themeColor ?? selectedLeague?.themeColor
+    return themeColor ? withAlpha(themeColor, 0.82) : 'rgba(251, 191, 36, 0.8)'
+  }, [fixturePayload?.league.themeColor, selectedLeague?.themeColor])
+
   const playedMatchById = useMemo(() => {
     const map = new Map<string, PublicFixturePayload['playedMatches'][number]>()
     fixturePayload?.playedMatches.forEach((match) => map.set(match.matchId, match))
@@ -2302,10 +2307,11 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                           {Array.from({ length: 8 }).map((_, index) => (
                             <span
                               key={`award-burst-${selectedRound}-${index}`}
-                              className="absolute h-2 w-2 rounded-full bg-amber-200/80"
+                              className="absolute h-2 w-2 rounded-full"
                               style={{
                                 left: `${10 + index * 11}%`,
                                 top: index % 2 === 0 ? '22%' : '72%',
+                                backgroundColor: awardBurstColor,
                                 animation: `awardBurst 720ms ease-out ${index * 40}ms 1 both`,
                               }}
                             />
