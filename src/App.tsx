@@ -166,6 +166,69 @@ const clampInt = (value: number, minimum: number, maximum: number, fallback: num
   return Math.min(maximum, Math.max(minimum, normalized))
 }
 
+const normalizeLabel = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+
+const parseFormationLines = (formationKey?: string) => {
+  if (!formationKey) return null
+  const parsed = formationKey
+    .split('-')
+    .map((item) => Number.parseInt(item.trim(), 10))
+    .filter((item) => Number.isFinite(item) && item > 0)
+  return parsed.length > 0 ? parsed : null
+}
+
+const buildVisualLines = (
+  players: Array<{ id: string; name: string; number: number; position?: string }>,
+  formationKey?: string,
+) => {
+  if (players.length === 0) return [] as Array<Array<{ id: string; name: string; number: number; position?: string }>>
+  if (players.length === 1) return [players]
+
+  const ordered = players.slice()
+  const parsedFormation = parseFormationLines(formationKey)
+
+  if (parsedFormation) {
+    const lines: Array<Array<{ id: string; name: string; number: number; position?: string }>> = []
+    let cursor = 0
+
+    parsedFormation.forEach((lineSize) => {
+      lines.push(ordered.slice(cursor, cursor + lineSize))
+      cursor += lineSize
+    })
+
+    if (cursor < ordered.length) {
+      const lastLine = lines[lines.length - 1] ?? []
+      lines[lines.length - 1] = [...lastLine, ...ordered.slice(cursor)]
+    }
+
+    return lines.filter((line) => line.length > 0)
+  }
+
+  const goalkeeper = ordered.slice(0, 1)
+  const outfield = ordered.slice(1)
+  if (outfield.length === 0) return [goalkeeper]
+
+  const lineCount = outfield.length >= 9 ? 4 : outfield.length >= 6 ? 3 : 2
+  const base = Math.floor(outfield.length / lineCount)
+  let remainder = outfield.length % lineCount
+  let cursor = 0
+
+  const lines: Array<Array<{ id: string; name: string; number: number; position?: string }>> = [goalkeeper]
+  for (let index = 0; index < lineCount; index += 1) {
+    const size = base + (remainder > 0 ? 1 : 0)
+    remainder -= remainder > 0 ? 1 : 0
+    lines.push(outfield.slice(cursor, cursor + size))
+    cursor += size
+  }
+
+  return lines.filter((line) => line.length > 0)
+}
+
 const parseManualMatchId = (matchId: string, round: number) => {
   if (matchId.startsWith('manual__')) {
     const [prefix, rawRound, homeTeamId, awayTeamId] = matchId.split('__')
@@ -2180,6 +2243,85 @@ function App() {
   const selectedPlayedMatchScoped = playedMatchesScoped.find((match) => match.id === selectedPlayedMatchId) ?? null
 
   const selectedPlayedStatsScoped = selectedPlayedMatchScoped ? playedMatchesMap[selectedPlayedMatchScoped.id] ?? null : null
+
+  const selectedPlayedHomeTeamRoster = selectedPlayedMatchScoped
+    ? teamsById.get(selectedPlayedMatchScoped.homeTeamId) ?? null
+    : null
+
+  const selectedPlayedAwayTeamRoster = selectedPlayedMatchScoped
+    ? teamsById.get(selectedPlayedMatchScoped.awayTeamId) ?? null
+    : null
+
+  const selectedPlayedHomeLineupVisual = useMemo(() => {
+    if (!selectedPlayedStatsScoped || !selectedPlayedHomeTeamRoster) return [] as Array<{ id: string; name: string; number: number; position?: string }>
+    const starterIds = selectedPlayedStatsScoped.homeLineup?.starters ?? []
+    return starterIds
+      .map((playerId) => selectedPlayedHomeTeamRoster.players.find((player) => player.id === playerId))
+      .filter((player): player is RegisteredTeam['players'][number] => Boolean(player))
+      .map((player) => ({ id: player.id, name: player.name, number: player.number, position: player.position }))
+  }, [selectedPlayedHomeTeamRoster, selectedPlayedStatsScoped])
+
+  const selectedPlayedAwayLineupVisual = useMemo(() => {
+    if (!selectedPlayedStatsScoped || !selectedPlayedAwayTeamRoster) return [] as Array<{ id: string; name: string; number: number; position?: string }>
+    const starterIds = selectedPlayedStatsScoped.awayLineup?.starters ?? []
+    return starterIds
+      .map((playerId) => selectedPlayedAwayTeamRoster.players.find((player) => player.id === playerId))
+      .filter((player): player is RegisteredTeam['players'][number] => Boolean(player))
+      .map((player) => ({ id: player.id, name: player.name, number: player.number, position: player.position }))
+  }, [selectedPlayedAwayTeamRoster, selectedPlayedStatsScoped])
+
+  const selectedPlayedHomeVisualLines = useMemo(
+    () => buildVisualLines(selectedPlayedHomeLineupVisual, selectedPlayedStatsScoped?.homeLineup?.formationKey).slice().reverse(),
+    [selectedPlayedHomeLineupVisual, selectedPlayedStatsScoped?.homeLineup?.formationKey],
+  )
+
+  const selectedPlayedAwayVisualLines = useMemo(
+    () => buildVisualLines(selectedPlayedAwayLineupVisual, selectedPlayedStatsScoped?.awayLineup?.formationKey),
+    [selectedPlayedAwayLineupVisual, selectedPlayedStatsScoped?.awayLineup?.formationKey],
+  )
+
+  const selectedPlayedHistoryIndicators = useMemo(() => {
+    const map = new Map<string, { goals: number; penaltyMisses: number; yellows: number; reds: number; substitutedOut: boolean }>()
+    if (!selectedPlayedStatsScoped) return map
+
+    const homeName = normalizeLabel(selectedPlayedStatsScoped.homeTeamName)
+    const awayName = normalizeLabel(selectedPlayedStatsScoped.awayTeamName)
+
+    const resolvePlayerId = (teamName: string, playerName: string) => {
+      const normalizedTeam = normalizeLabel(teamName)
+      const normalizedPlayer = normalizeLabel(playerName)
+      const rosterPlayers = normalizedTeam === homeName
+        ? (selectedPlayedHomeTeamRoster?.players ?? [])
+        : normalizedTeam === awayName
+          ? (selectedPlayedAwayTeamRoster?.players ?? [])
+          : []
+
+      if (rosterPlayers.length === 0) return ''
+      const player = rosterPlayers.find((item) => normalizeLabel(item.name) === normalizedPlayer)
+      return player?.id ?? ''
+    }
+
+    selectedPlayedStatsScoped.events.forEach((event) => {
+      const playerId = resolvePlayerId(event.teamName, event.playerName)
+      if (!playerId) return
+
+      const current = map.get(playerId) ?? { goals: 0, penaltyMisses: 0, yellows: 0, reds: 0, substitutedOut: false }
+
+      if (event.type === 'goal' || event.type === 'penalty_goal') current.goals += 1
+      if (event.type === 'penalty_miss') current.penaltyMisses += 1
+      if (event.type === 'yellow') current.yellows += 1
+      if (event.type === 'red') current.reds += 1
+      if (event.type === 'double_yellow') {
+        current.yellows += 1
+        current.reds += 1
+      }
+      if (event.type === 'substitution') current.substitutedOut = true
+
+      map.set(playerId, current)
+    })
+
+    return map
+  }, [selectedPlayedAwayTeamRoster, selectedPlayedHomeTeamRoster, selectedPlayedStatsScoped])
 
   const selectedPendingMatchScoped = pendingMatchesScoped.find((match) => match.id === selectedPendingMatchId) ?? null
 
@@ -5000,6 +5142,97 @@ function App() {
                       TA: {selectedPlayedStatsScoped.homeStats.yellows} ({statPercent(selectedPlayedStatsScoped.homeStats.yellows, selectedPlayedStatsScoped.homeStats.yellows + selectedPlayedStatsScoped.awayStats.yellows)}%) / {selectedPlayedStatsScoped.awayStats.yellows} ({statPercent(selectedPlayedStatsScoped.awayStats.yellows, selectedPlayedStatsScoped.homeStats.yellows + selectedPlayedStatsScoped.awayStats.yellows)}%) •
                       TR: {selectedPlayedStatsScoped.homeStats.reds} ({statPercent(selectedPlayedStatsScoped.homeStats.reds, selectedPlayedStatsScoped.homeStats.reds + selectedPlayedStatsScoped.awayStats.reds)}%) / {selectedPlayedStatsScoped.awayStats.reds} ({statPercent(selectedPlayedStatsScoped.awayStats.reds, selectedPlayedStatsScoped.homeStats.reds + selectedPlayedStatsScoped.awayStats.reds)}%)
                     </p>
+
+                    {(selectedPlayedHomeLineupVisual.length > 0 || selectedPlayedAwayLineupVisual.length > 0) && (
+                      <div className="mt-3 rounded border border-emerald-300/20 bg-emerald-900/20 p-3">
+                        <p className="text-xs font-semibold text-emerald-100">Cancha · reconstrucción de eventos</p>
+                        <p className="mt-1 text-[11px] text-emerald-100/80">Se muestran goles, TA/TR, penal fallado y cambio (salió) sobre titulares guardados.</p>
+
+                        <div className="relative mt-3 overflow-hidden rounded-xl border border-white/20 bg-emerald-700/75 p-3">
+                          <div className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(0deg,rgba(255,255,255,0.04)_0px,rgba(255,255,255,0.04)_30px,rgba(0,0,0,0.04)_30px,rgba(0,0,0,0.04)_60px)]" />
+                          <div className="pointer-events-none absolute inset-0">
+                            <div className="absolute left-2 right-2 top-2 bottom-2 rounded-md border border-white/35" />
+                            <div className="absolute left-2 right-2 top-1/2 h-px -translate-y-1/2 bg-white/45" />
+                            <div className="absolute left-1/2 top-1/2 h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/40" />
+                          </div>
+
+                          <div className="relative mb-2 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-white">
+                            <span>{selectedPlayedStatsScoped.awayTeamName}</span>
+                            <span>{selectedPlayedStatsScoped.homeTeamName}</span>
+                          </div>
+
+                          <div className="relative h-[400px]">
+                            <div className="absolute inset-x-2 top-4 bottom-1/2 flex flex-col justify-evenly">
+                              {selectedPlayedAwayVisualLines.map((line, lineIndex) => (
+                                <div key={`history-away-line-${lineIndex}`} className="px-1">
+                                  <div className="grid items-start gap-2" style={{ gridTemplateColumns: `repeat(${line.length}, minmax(0, 1fr))` }}>
+                                    {line.map((player) => {
+                                      const indicator = selectedPlayedHistoryIndicators.get(player.id)
+                                      const badges: string[] = []
+                                      if (indicator?.goals) badges.push(`⚽${indicator.goals > 1 ? `x${indicator.goals}` : ''}`)
+                                      if (indicator?.penaltyMisses) badges.push(`❌⚽${indicator.penaltyMisses > 1 ? `x${indicator.penaltyMisses}` : ''}`)
+                                      if (indicator?.yellows) badges.push(`TA${indicator.yellows > 1 ? `x${indicator.yellows}` : ''}`)
+                                      if (indicator?.reds) badges.push(`TR${indicator.reds > 1 ? `x${indicator.reds}` : ''}`)
+                                      if (indicator?.substitutedOut) badges.push('↘')
+
+                                      return (
+                                        <div key={player.id} className="min-w-0 text-center">
+                                          <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-slate-900/70 text-xs font-bold text-white">
+                                            {player.number}
+                                          </div>
+                                          <p className="mt-1 px-0.5 text-[10px] font-semibold text-white leading-tight break-words">{player.name}</p>
+                                          {badges.length > 0 && (
+                                            <div className="mt-1 flex flex-wrap justify-center gap-1">
+                                              {badges.map((badge) => (
+                                                <span key={`${player.id}-away-${badge}`} className="rounded bg-slate-900/80 px-1 text-[9px] font-semibold text-white">{badge}</span>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="absolute inset-x-2 top-1/2 bottom-4 flex flex-col justify-evenly">
+                              {selectedPlayedHomeVisualLines.map((line, lineIndex) => (
+                                <div key={`history-home-line-${lineIndex}`} className="px-1">
+                                  <div className="grid items-start gap-2" style={{ gridTemplateColumns: `repeat(${line.length}, minmax(0, 1fr))` }}>
+                                    {line.map((player) => {
+                                      const indicator = selectedPlayedHistoryIndicators.get(player.id)
+                                      const badges: string[] = []
+                                      if (indicator?.goals) badges.push(`⚽${indicator.goals > 1 ? `x${indicator.goals}` : ''}`)
+                                      if (indicator?.penaltyMisses) badges.push(`❌⚽${indicator.penaltyMisses > 1 ? `x${indicator.penaltyMisses}` : ''}`)
+                                      if (indicator?.yellows) badges.push(`TA${indicator.yellows > 1 ? `x${indicator.yellows}` : ''}`)
+                                      if (indicator?.reds) badges.push(`TR${indicator.reds > 1 ? `x${indicator.reds}` : ''}`)
+                                      if (indicator?.substitutedOut) badges.push('↘')
+
+                                      return (
+                                        <div key={player.id} className="min-w-0 text-center">
+                                          <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-slate-900/70 text-xs font-bold text-white">
+                                            {player.number}
+                                          </div>
+                                          <p className="mt-1 px-0.5 text-[10px] font-semibold text-white leading-tight break-words">{player.name}</p>
+                                          {badges.length > 0 && (
+                                            <div className="mt-1 flex flex-wrap justify-center gap-1">
+                                              {badges.map((badge) => (
+                                                <span key={`${player.id}-home-${badge}`} className="rounded bg-slate-900/80 px-1 text-[9px] font-semibold text-white">{badge}</span>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="mt-3 rounded border border-white/10 bg-slate-900/60 p-3">
                       <p className="text-xs font-semibold text-white">Goles del partido</p>
