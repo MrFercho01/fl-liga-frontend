@@ -2297,12 +2297,25 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                 ) : (
                   <div className="mt-4 space-y-2">
                     {selectedRoundAward && (
-                      <div className="mb-2 rounded-2xl border border-amber-300/45 bg-gradient-to-r from-amber-500/20 via-fuchsia-500/20 to-cyan-500/20 p-3 shadow-lg shadow-amber-500/10">
+                      <div key={`round-award-${selectedRound}`} className="relative mb-2 overflow-hidden rounded-2xl border border-amber-300/45 bg-gradient-to-r from-amber-500/20 via-fuchsia-500/20 to-cyan-500/20 p-3 shadow-lg shadow-amber-500/10">
+                        <div className="pointer-events-none absolute inset-0">
+                          {Array.from({ length: 8 }).map((_, index) => (
+                            <span
+                              key={`award-burst-${selectedRound}-${index}`}
+                              className="absolute h-2 w-2 rounded-full bg-amber-200/80"
+                              style={{
+                                left: `${10 + index * 11}%`,
+                                top: index % 2 === 0 ? '22%' : '72%',
+                                animation: `awardBurst 720ms ease-out ${index * 40}ms 1 both`,
+                              }}
+                            />
+                          ))}
+                        </div>
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-100">
                           Reconocimiento · Fecha {selectedRoundAward.round}
                         </p>
                         <div
-                          className="mt-2 flex items-center gap-3 rounded-xl border border-amber-200/30 bg-slate-900/30 p-2"
+                          className="relative mt-2 flex items-center gap-3 rounded-xl border border-amber-200/30 bg-slate-900/30 p-2"
                           style={{
                             animation: 'awardReveal 520ms cubic-bezier(0.22, 1, 0.36, 1), awardGlow 3.2s ease-in-out infinite',
                           }}
@@ -3237,6 +3250,20 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
           }
           50% {
             transform: translateY(-2px);
+          }
+        }
+
+        @keyframes awardBurst {
+          0% {
+            opacity: 0;
+            transform: translateY(0) scale(0.45);
+          }
+          20% {
+            opacity: 0.95;
+          }
+          100% {
+            opacity: 0;
+            transform: translateY(-16px) scale(1.25);
           }
         }
       `}</style>
