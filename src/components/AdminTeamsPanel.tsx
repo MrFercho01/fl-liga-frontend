@@ -2453,23 +2453,23 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
               )}
 
               <div className="mt-3 rounded border border-fuchsia-300/20 bg-fuchsia-900/10 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-xs font-semibold text-white">Mejores jugadoras por partido · Fecha {activeFixtureRound || '-'}</p>
                     <p className="mt-1 text-[11px] text-slate-300">Selecciona la mejor jugadora de cada cruce y luego define la jugadora de la fecha.</p>
                     <p className="mt-1 text-[11px] text-amber-200">Partidos culminados en la fecha: {roundCompletedMatchesCount}/{totalRoundMatches || 0}</p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={() => void downloadRoundAwardsCardPng()} className="rounded border border-fuchsia-300/40 bg-fuchsia-500/20 px-2 py-1 text-xs font-semibold text-fuchsia-100">
+                  <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap">
+                    <button type="button" onClick={() => void downloadRoundAwardsCardPng()} className="rounded border border-fuchsia-300/40 bg-fuchsia-500/20 px-2 py-1 text-xs font-semibold text-fuchsia-100 sm:w-auto">
                       Descargar imagen MVP
                     </button>
-                    <button type="button" onClick={shareRoundAwardsByWhatsapp} className="rounded border border-emerald-300/40 bg-emerald-600/20 px-2 py-1 text-xs font-semibold text-emerald-100">
+                    <button type="button" onClick={shareRoundAwardsByWhatsapp} className="rounded border border-emerald-300/40 bg-emerald-600/20 px-2 py-1 text-xs font-semibold text-emerald-100 sm:w-auto">
                       Compartir MVP en WhatsApp
                     </button>
                     <button
                       type="button"
                       onClick={() => setMvpMobileLogoOnlyMode((current) => !current)}
-                      className="rounded border border-cyan-300/40 bg-cyan-500/20 px-2 py-1 text-xs font-semibold text-cyan-100"
+                      className="rounded border border-cyan-300/40 bg-cyan-500/20 px-2 py-1 text-xs font-semibold text-cyan-100 sm:w-auto"
                     >
                       {mvpMobileLogoOnlyMode ? 'MVP móvil: solo logos' : 'MVP móvil: logos + nombre'}
                     </button>

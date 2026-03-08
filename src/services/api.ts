@@ -629,6 +629,15 @@ export const apiService = {
         }
         playedAt: string
       }>
+      roundAwards: Array<{
+        round: number
+        roundBestPlayerId?: string
+        roundBestPlayerName?: string
+        roundBestPlayerTeamId?: string
+        roundBestPlayerTeamName?: string
+        roundBestPlayerPhotoUrl?: string
+        updatedAt: string
+      }>
     }>
   > {
     try {
@@ -692,6 +701,15 @@ export const apiService = {
               formationKey?: string
             }
             playedAt: string
+          }>
+          roundAwards: Array<{
+            round: number
+            roundBestPlayerId?: string
+            roundBestPlayerName?: string
+            roundBestPlayerTeamId?: string
+            roundBestPlayerTeamName?: string
+            roundBestPlayerPhotoUrl?: string
+            updatedAt: string
           }>
         }
       }

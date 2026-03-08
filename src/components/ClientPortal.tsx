@@ -99,6 +99,15 @@ interface PublicFixturePayload {
     }
     playedAt: string
   }>
+  roundAwards: Array<{
+    round: number
+    roundBestPlayerId?: string
+    roundBestPlayerName?: string
+    roundBestPlayerTeamId?: string
+    roundBestPlayerTeamName?: string
+    roundBestPlayerPhotoUrl?: string
+    updatedAt: string
+  }>
 }
 
 interface ClientPortalProps {
@@ -968,6 +977,26 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     () => scheduledMatches.filter((match) => match.round === selectedRound),
     [scheduledMatches, selectedRound],
   )
+
+  const selectedRoundAward = useMemo(() => {
+    if (!fixturePayload) return null
+
+    const entry = fixturePayload.roundAwards.find((item) => item.round === selectedRound)
+    if (!entry?.roundBestPlayerId || !entry.roundBestPlayerName) return null
+
+    const team = entry.roundBestPlayerTeamId
+      ? fixturePayload.teams.find((item) => item.id === entry.roundBestPlayerTeamId)
+      : null
+    const rosterPlayer = team?.players.find((player) => player.id === entry.roundBestPlayerId)
+
+    return {
+      id: entry.roundBestPlayerId,
+      name: entry.roundBestPlayerName,
+      teamName: entry.roundBestPlayerTeamName ?? team?.name ?? 'Equipo',
+      photoUrl: entry.roundBestPlayerPhotoUrl ?? rosterPlayer?.photoUrl,
+      round: entry.round,
+    }
+  }, [fixturePayload, selectedRound])
 
   const playedMatchById = useMemo(() => {
     const map = new Map<string, PublicFixturePayload['playedMatches'][number]>()
@@ -2267,6 +2296,32 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                   <p className="mt-4 text-sm text-primary-200">Cargando fixture...</p>
                 ) : (
                   <div className="mt-4 space-y-2">
+                    {selectedRoundAward && (
+                      <div className="mb-2 rounded-2xl border border-amber-300/45 bg-gradient-to-r from-amber-500/20 via-fuchsia-500/20 to-cyan-500/20 p-3 shadow-lg shadow-amber-500/10">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-100">
+                          Reconocimiento · Fecha {selectedRoundAward.round}
+                        </p>
+                        <div className="mt-2 flex items-center gap-3">
+                          {selectedRoundAward.photoUrl ? (
+                            <img
+                              src={selectedRoundAward.photoUrl}
+                              alt={selectedRoundAward.name}
+                              className="h-14 w-14 rounded-full border-2 border-amber-300/80 object-cover sm:h-16 sm:w-16"
+                            />
+                          ) : (
+                            <div className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-amber-300/80 bg-slate-900/60 text-xs font-bold text-amber-100 sm:h-16 sm:w-16">
+                              MVP
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-amber-50 sm:text-sm">🏅 Jugadora de la fecha</p>
+                            <p className="truncate text-sm font-bold text-white sm:text-base">{selectedRoundAward.name}</p>
+                            <p className="truncate text-xs text-slate-200 sm:text-sm">{selectedRoundAward.teamName}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {matchesByRound.length === 0 && (
                       <div className="rounded-xl border border-dashed border-white/20 bg-slate-900/60 p-4 text-center">
                         <p className="text-sm font-semibold text-slate-200">Aún no se define la fecha</p>
