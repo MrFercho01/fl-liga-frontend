@@ -115,6 +115,14 @@ interface ScheduledMatch {
   played: boolean
 }
 
+type LineupPlayer = {
+  id: string
+  name: string
+  number: number
+  position?: string
+  photoUrl?: string
+}
+
 type ClientStatsTab = 'matches' | 'standings' | 'scorers' | 'assists' | 'yellows' | 'reds' | 'keepers'
 
 const parseManualMatchId = (matchId: string, round: number) => {
@@ -642,6 +650,9 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     if (typeof window === 'undefined') return false
     return window.localStorage.getItem('@fl_goal_sound_enabled') === '1'
   })
+  const [initialLiveStartersByMatch, setInitialLiveStartersByMatch] = useState<
+    Record<string, { home: string[]; away: string[] }>
+  >({})
   const previousEventIdsRef = useRef<string[]>([])
   const mvpPopupShownMatchIdsRef = useRef<Set<string>>(new Set())
   const [loadingLeagues, setLoadingLeagues] = useState(true)
@@ -1402,6 +1413,36 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   const liveSelectedStatus = liveForSelected?.status
 
   useEffect(() => {
+    if (!selectedMatchId) {
+      setInitialLiveStartersByMatch({})
+    }
+  }, [selectedMatchId])
+
+  useEffect(() => {
+    if (!selectedMatch || !liveForSelected) return
+    if (liveForSelected.status === 'scheduled') {
+      setInitialLiveStartersByMatch((current) => {
+        if (!current[selectedMatch.id]) return current
+        const next = { ...current }
+        delete next[selectedMatch.id]
+        return next
+      })
+      return
+    }
+
+    setInitialLiveStartersByMatch((current) => {
+      if (current[selectedMatch.id]) return current
+      return {
+        ...current,
+        [selectedMatch.id]: {
+          home: [...liveForSelected.homeTeam.starters],
+          away: [...liveForSelected.awayTeam.starters],
+        },
+      }
+    })
+  }, [liveForSelected, selectedMatch])
+
+  useEffect(() => {
     if (!liveForSelected?.timer.running) return
 
     const interval = window.setInterval(() => {
@@ -1595,6 +1636,106 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
         savedAwayLineup,
       )
     : null
+
+  const substitutionDataByTeam = useMemo(() => {
+    const byTeam = new Map<string, {
+      outPlayerIds: Set<string>
+      inPlayerIds: Set<string>
+      timeline: Array<{ id: string; minute: number; clock: string; outPlayerId: string }>
+    }>()
+
+    const ensure = (teamId: string) => {
+      const current = byTeam.get(teamId)
+      if (current) return current
+      const next = {
+        outPlayerIds: new Set<string>(),
+        inPlayerIds: new Set<string>(),
+        timeline: [] as Array<{ id: string; minute: number; clock: string; outPlayerId: string }>,
+      }
+      byTeam.set(teamId, next)
+      return next
+    }
+
+    if (!selectedMatch || !homeLineup || !awayLineup) return byTeam
+
+    const initialFromSavedHome = savedHomeLineup?.starters ?? []
+    const initialFromSavedAway = savedAwayLineup?.starters ?? []
+    const capturedInitial = initialLiveStartersByMatch[selectedMatch.id]
+
+    const initialHomeStarters = capturedInitial?.home ?? initialFromSavedHome
+    const initialAwayStarters = capturedInitial?.away ?? initialFromSavedAway
+
+    const homeEntry = ensure(homeLineup.id)
+    const awayEntry = ensure(awayLineup.id)
+
+    homeLineup.starters.forEach((player) => {
+      if (!initialHomeStarters.includes(player.id)) {
+        homeEntry.inPlayerIds.add(player.id)
+      }
+    })
+
+    awayLineup.starters.forEach((player) => {
+      if (!initialAwayStarters.includes(player.id)) {
+        awayEntry.inPlayerIds.add(player.id)
+      }
+    })
+
+    if (liveForSelected) {
+      liveForSelected.events
+        .filter((event) => event.type === 'substitution' && event.playerId)
+        .slice()
+        .reverse()
+        .forEach((event) => {
+          if (!event.playerId) return
+          const teamEntry = ensure(event.teamId)
+          teamEntry.outPlayerIds.add(event.playerId)
+          teamEntry.timeline.push({
+            id: event.id,
+            minute: event.minute,
+            clock: event.clock,
+            outPlayerId: event.playerId,
+          })
+        })
+    }
+
+    return byTeam
+  }, [
+    awayLineup,
+    homeLineup,
+    initialLiveStartersByMatch,
+    liveForSelected,
+    savedAwayLineup?.starters,
+    savedHomeLineup?.starters,
+    selectedMatch,
+  ])
+
+  const homeSubstitutionData = useMemo(
+    () => substitutionDataByTeam.get(homeLineup?.id ?? '') ?? { outPlayerIds: new Set<string>(), inPlayerIds: new Set<string>(), timeline: [] as Array<{ id: string; minute: number; clock: string; outPlayerId: string }> },
+    [homeLineup?.id, substitutionDataByTeam],
+  )
+
+  const awaySubstitutionData = useMemo(
+    () => substitutionDataByTeam.get(awayLineup?.id ?? '') ?? { outPlayerIds: new Set<string>(), inPlayerIds: new Set<string>(), timeline: [] as Array<{ id: string; minute: number; clock: string; outPlayerId: string }> },
+    [awayLineup?.id, substitutionDataByTeam],
+  )
+
+  const homeBenchVisibleIds = useMemo(() => {
+    if (!homeLineup) return [] as string[]
+    const visible = new Set<string>([
+      ...homeLineup.substitutes.map((player) => player.id),
+      ...Array.from(homeSubstitutionData.inPlayerIds),
+    ])
+    return homeLineup.allPlayers.map((player) => player.id).filter((playerId) => visible.has(playerId))
+  }, [homeLineup, homeSubstitutionData.inPlayerIds])
+
+  const awayBenchVisibleIds = useMemo(() => {
+    if (!awayLineup) return [] as string[]
+    const visible = new Set<string>([
+      ...awayLineup.substitutes.map((player) => player.id),
+      ...Array.from(awaySubstitutionData.inPlayerIds),
+    ])
+    return awayLineup.allPlayers.map((player) => player.id).filter((playerId) => visible.has(playerId))
+  }, [awayLineup, awaySubstitutionData.inPlayerIds])
 
   const events = useMemo(() => {
     if (!selectedMatch) return [] as Array<{ id: string; label: string; isHomeTeamEvent: boolean; type: LiveEvent['type'] }>
@@ -1854,6 +1995,38 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     () => (homeLineup ? buildVisualLines(homeLineup.starters, homeLineup.formationKey).slice().reverse() : []),
     [homeLineup],
   )
+
+  const homeBenchPlayers = useMemo<LineupPlayer[]>(() => {
+    const lineup = homeLineup
+    if (!lineup) return []
+    if (noDefinedStarters) return lineup.allPlayers as LineupPlayer[]
+
+    const resolved: LineupPlayer[] = []
+    homeBenchVisibleIds.forEach((id) => {
+      const player = lineup.allPlayers.find((item) => item.id === id)
+      if (player) {
+        resolved.push(player)
+      }
+    })
+
+    return resolved
+  }, [homeBenchVisibleIds, homeLineup, noDefinedStarters])
+
+  const awayBenchPlayers = useMemo<LineupPlayer[]>(() => {
+    const lineup = awayLineup
+    if (!lineup) return []
+    if (noDefinedStarters) return lineup.allPlayers as LineupPlayer[]
+
+    const resolved: LineupPlayer[] = []
+    awayBenchVisibleIds.forEach((id) => {
+      const player = lineup.allPlayers.find((item) => item.id === id)
+      if (player) {
+        resolved.push(player)
+      }
+    })
+
+    return resolved
+  }, [awayBenchVisibleIds, awayLineup, noDefinedStarters])
 
   const backgroundStyle = useMemo(() => {
     const selectedColor = fixturePayload?.league.themeColor ?? selectedLeague?.themeColor
@@ -2744,10 +2917,51 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                       {noDefinedStarters ? `Plantel completo ${homeLineup.name}` : `Suplentes ${homeLineup.name}`}
                     </p>
                     <div className="mt-1 max-h-28 space-y-1 overflow-auto pr-1 text-xs text-slate-100">
-                      {(noDefinedStarters ? homeLineup.allPlayers : homeLineup.substitutes).length === 0 && <p className="text-slate-400">Sin jugadores registrados.</p>}
-                      {(noDefinedStarters ? homeLineup.allPlayers : homeLineup.substitutes).map((player) => (
-                        <p key={player.id}>#{player.number} {player.name}</p>
-                      ))}
+                      {homeBenchPlayers.length === 0 && <p className="text-slate-400">Sin jugadores registrados.</p>}
+                      {homeBenchPlayers.map((player: LineupPlayer) => {
+                        const indicator = playerEventIndicators.get(player.id)
+                        const isOnField = homeLineup.starters.some((starter) => starter.id === player.id)
+                        const badges: string[] = []
+
+                        if (indicator?.goals) badges.push(`⚽ ${indicator.goals}`)
+                        if (indicator?.penaltyMisses) badges.push(`❌⚽ ${indicator.penaltyMisses}`)
+                        if (indicator?.yellows) badges.push(`TA ${indicator.yellows}`)
+                        if (indicator?.reds) badges.push(`TR ${indicator.reds}`)
+                        if (homeSubstitutionData.outPlayerIds.has(player.id)) badges.push('↘ Salió')
+                        if (homeSubstitutionData.inPlayerIds.has(player.id)) badges.push('↗ Entró')
+
+                        return (
+                          <div key={player.id} className="rounded border border-white/10 bg-slate-900/70 px-2 py-1">
+                            <p className="font-medium">
+                              #{player.number} {player.name}
+                              {isOnField && <span className="ml-2 rounded bg-emerald-600/40 px-1 py-0.5 text-[10px] font-semibold text-emerald-100">↗ En cancha</span>}
+                            </p>
+                            {badges.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {badges.map((badge) => (
+                                  <span key={`${player.id}-${badge}`} className="rounded bg-slate-700/90 px-1 py-0.5 text-[10px] text-slate-100">
+                                    {badge}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <div className="mt-2 rounded border border-white/10 bg-slate-900/70 p-2">
+                      <p className="text-[11px] font-semibold text-slate-200">Timeline de cambios</p>
+                      <div className="mt-1 max-h-20 space-y-1 overflow-auto pr-1 text-[11px] text-slate-300">
+                        {homeSubstitutionData.timeline.length === 0 && <p className="text-slate-400">Sin cambios registrados.</p>}
+                        {homeSubstitutionData.timeline.map((entry) => {
+                          const outName = homeLineup.allPlayers.find((player) => player.id === entry.outPlayerId)?.name ?? entry.outPlayerId
+                          return (
+                            <p key={entry.id} className="rounded border border-white/10 bg-slate-800/80 px-2 py-1">
+                              {entry.minute}' · {entry.clock} · <span className="text-rose-300">↘ {outName}</span> · <span className="text-emerald-300">↗ Cambio</span>
+                            </p>
+                          )
+                        })}
+                      </div>
                     </div>
                   </div>
                   <div
@@ -2761,10 +2975,51 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                       {noDefinedStarters ? `Plantel completo ${awayLineup.name}` : `Suplentes ${awayLineup.name}`}
                     </p>
                     <div className="mt-1 max-h-28 space-y-1 overflow-auto pr-1 text-xs text-slate-100">
-                      {(noDefinedStarters ? awayLineup.allPlayers : awayLineup.substitutes).length === 0 && <p className="text-slate-400">Sin jugadores registrados.</p>}
-                      {(noDefinedStarters ? awayLineup.allPlayers : awayLineup.substitutes).map((player) => (
-                        <p key={player.id}>#{player.number} {player.name}</p>
-                      ))}
+                      {awayBenchPlayers.length === 0 && <p className="text-slate-400">Sin jugadores registrados.</p>}
+                      {awayBenchPlayers.map((player: LineupPlayer) => {
+                        const indicator = playerEventIndicators.get(player.id)
+                        const isOnField = awayLineup.starters.some((starter) => starter.id === player.id)
+                        const badges: string[] = []
+
+                        if (indicator?.goals) badges.push(`⚽ ${indicator.goals}`)
+                        if (indicator?.penaltyMisses) badges.push(`❌⚽ ${indicator.penaltyMisses}`)
+                        if (indicator?.yellows) badges.push(`TA ${indicator.yellows}`)
+                        if (indicator?.reds) badges.push(`TR ${indicator.reds}`)
+                        if (awaySubstitutionData.outPlayerIds.has(player.id)) badges.push('↘ Salió')
+                        if (awaySubstitutionData.inPlayerIds.has(player.id)) badges.push('↗ Entró')
+
+                        return (
+                          <div key={player.id} className="rounded border border-white/10 bg-slate-900/70 px-2 py-1">
+                            <p className="font-medium">
+                              #{player.number} {player.name}
+                              {isOnField && <span className="ml-2 rounded bg-emerald-600/40 px-1 py-0.5 text-[10px] font-semibold text-emerald-100">↗ En cancha</span>}
+                            </p>
+                            {badges.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {badges.map((badge) => (
+                                  <span key={`${player.id}-${badge}`} className="rounded bg-slate-700/90 px-1 py-0.5 text-[10px] text-slate-100">
+                                    {badge}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <div className="mt-2 rounded border border-white/10 bg-slate-900/70 p-2">
+                      <p className="text-[11px] font-semibold text-slate-200">Timeline de cambios</p>
+                      <div className="mt-1 max-h-20 space-y-1 overflow-auto pr-1 text-[11px] text-slate-300">
+                        {awaySubstitutionData.timeline.length === 0 && <p className="text-slate-400">Sin cambios registrados.</p>}
+                        {awaySubstitutionData.timeline.map((entry) => {
+                          const outName = awayLineup.allPlayers.find((player) => player.id === entry.outPlayerId)?.name ?? entry.outPlayerId
+                          return (
+                            <p key={entry.id} className="rounded border border-white/10 bg-slate-800/80 px-2 py-1">
+                              {entry.minute}' · {entry.clock} · <span className="text-rose-300">↘ {outName}</span> · <span className="text-emerald-300">↗ Cambio</span>
+                            </p>
+                          )
+                        })}
+                      </div>
                     </div>
                   </div>
                 </div>
