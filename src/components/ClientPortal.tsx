@@ -2301,12 +2301,18 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-100">
                           Reconocimiento · Fecha {selectedRoundAward.round}
                         </p>
-                        <div className="mt-2 flex items-center gap-3">
+                        <div
+                          className="mt-2 flex items-center gap-3 rounded-xl border border-amber-200/30 bg-slate-900/30 p-2"
+                          style={{
+                            animation: 'awardReveal 520ms cubic-bezier(0.22, 1, 0.36, 1), awardGlow 3.2s ease-in-out infinite',
+                          }}
+                        >
                           {selectedRoundAward.photoUrl ? (
                             <img
                               src={selectedRoundAward.photoUrl}
                               alt={selectedRoundAward.name}
                               className="h-14 w-14 rounded-full border-2 border-amber-300/80 object-cover sm:h-16 sm:w-16"
+                              style={{ animation: 'awardPhotoFloat 2.8s ease-in-out infinite' }}
                             />
                           ) : (
                             <div className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-amber-300/80 bg-slate-900/60 text-xs font-bold text-amber-100 sm:h-16 sm:w-16">
@@ -3198,6 +3204,39 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
           100% {
             opacity: 1;
             transform: translateY(0) scale(1);
+          }
+        }
+
+        @keyframes awardReveal {
+          0% {
+            opacity: 0;
+            transform: translateY(10px) scale(0.97);
+            filter: saturate(0.8);
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            filter: saturate(1);
+          }
+        }
+
+        @keyframes awardGlow {
+          0%,
+          100% {
+            box-shadow: 0 0 0 rgba(251, 191, 36, 0);
+          }
+          50% {
+            box-shadow: 0 0 0 6px rgba(251, 191, 36, 0.12);
+          }
+        }
+
+        @keyframes awardPhotoFloat {
+          0%,
+          100% {
+            transform: translateY(0);
+          }
+          50% {
+            transform: translateY(-2px);
           }
         }
       `}</style>
