@@ -1,7 +1,7 @@
 import { toPng } from 'html-to-image'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiService } from '../services/api'
-import type { FixtureResponse, FixtureScheduleEntry, RegisteredTeam, RoundAwardsRankingEntry } from '../types/admin.ts'
+import type { FixtureResponse, FixtureScheduleEntry, PlayedMatchRecord, RegisteredTeam, RoundAwardsRankingEntry } from '../types/admin.ts'
 import type { League } from '../types/league.ts'
 
 interface AdminTeamsPanelProps {
@@ -137,6 +137,13 @@ const abbreviateTeamName = (name: string) => {
   return `${compact.slice(0, 13)}…`
 }
 
+const normalizeLabel = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+
 const createManualMatchId = (round: number, homeTeamId: string, awayTeamId: string) =>
   `manual__${round}__${homeTeamId}__${awayTeamId}`
 
@@ -258,6 +265,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [roundAwardsByRound, setRoundAwardsByRound] = useState<Record<number, RoundAwardsDraft>>({})
   const [roundAwardsRanking, setRoundAwardsRanking] = useState<RoundAwardsRankingEntry[]>([])
   const [playedMatchesCountByRound, setPlayedMatchesCountByRound] = useState<Record<number, number>>({})
+  const [playedMatchesRecords, setPlayedMatchesRecords] = useState<PlayedMatchRecord[]>([])
   const [isSavingFixtureRound, setIsSavingFixtureRound] = useState(false)
   const [isRefreshingFixture, setIsRefreshingFixture] = useState(false)
   const [mobileLogoOnlyMode, setMobileLogoOnlyMode] = useState(true)
@@ -340,6 +348,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       setRoundAwardsByRound({})
       setRoundAwardsRanking([])
       setPlayedMatchesCountByRound({})
+      setPlayedMatchesRecords([])
       return
     }
 
@@ -397,8 +406,10 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
         nextCounts[record.round] = (nextCounts[record.round] ?? 0) + 1
       })
       setPlayedMatchesCountByRound(nextCounts)
+      setPlayedMatchesRecords(playedResponse.data)
     } else {
       setPlayedMatchesCountByRound({})
+      setPlayedMatchesRecords([])
     }
   }, [activeCategoryId, selectedLeague])
 
@@ -950,19 +961,6 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     [activeRoundAwards.matchBestPlayers, activeRoundMatchKeys],
   )
 
-  const activeRoundBestPlayerId = useMemo(() => {
-    const exists = activeRoundMatchBestPlayers.some((item) => item.playerId === activeRoundAwards.roundBestPlayerId)
-    return exists ? activeRoundAwards.roundBestPlayerId : ''
-  }, [activeRoundAwards.roundBestPlayerId, activeRoundMatchBestPlayers])
-
-  const activeRoundBestPlayerByMatch = useMemo(() => {
-    const map = new Map<string, RoundMatchBestPlayerDraft>()
-    activeRoundMatchBestPlayers.forEach((item) => {
-      map.set(item.matchKey, item)
-    })
-    return map
-  }, [activeRoundMatchBestPlayers])
-
   const activeRoundMatchMvpOptions = useMemo(() => {
     return scheduledRoundMatches.map((match) => {
       const homeTeam = teamMap.get(match.homeTeamId)
@@ -993,15 +991,139 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     })
   }, [scheduledRoundMatches, teamMap])
 
-  const roundBestPlayerOptions = useMemo(() => {
+  const playersById = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; teamId: string; teamName: string; photoUrl?: string }>()
+    teams.forEach((team) => {
+      team.players.forEach((player) => {
+        map.set(player.id, {
+          id: player.id,
+          name: player.name,
+          teamId: team.id,
+          teamName: team.name,
+          photoUrl: player.photoUrl,
+        })
+      })
+    })
+    return map
+  }, [teams])
+
+  const teamIdByNormalizedName = useMemo(() => {
+    const map = new Map<string, string>()
+    teams.forEach((team) => {
+      map.set(normalizeLabel(team.name), team.id)
+    })
+    return map
+  }, [teams])
+
+  const playedRoundBestPlayers = useMemo(() => {
+    if (!activeFixtureRound) return [] as RoundMatchBestPlayerDraft[]
+
+    const optionsByKey = new Map(activeRoundMatchMvpOptions.map((item) => [item.matchKey, item]))
+
+    return playedMatchesRecords
+      .filter((record) => record.round === activeFixtureRound)
+      .map((record) => {
+        if (!record.playerOfMatchId || !record.playerOfMatchName) return null
+
+        const homeTeamId = teamIdByNormalizedName.get(normalizeLabel(record.homeTeamName))
+        const awayTeamId = teamIdByNormalizedName.get(normalizeLabel(record.awayTeamName))
+        if (!homeTeamId || !awayTeamId) return null
+
+        const matchKey = makeRoundMatchKey(homeTeamId, awayTeamId)
+        if (!optionsByKey.has(matchKey)) return null
+
+        const playerFromRoster = playersById.get(record.playerOfMatchId)
+        const playerFromSnapshot = record.players.find((player) => player.playerId === record.playerOfMatchId)
+
+        const teamId = playerFromRoster?.teamId ?? playerFromSnapshot?.teamId
+        const teamName = playerFromRoster?.teamName ?? playerFromSnapshot?.teamName
+
+        if (!teamId || !teamName) return null
+
+        return {
+          matchKey,
+          homeTeamId,
+          awayTeamId,
+          playerId: record.playerOfMatchId,
+          playerName: record.playerOfMatchName,
+          teamId,
+          teamName,
+        }
+      })
+      .filter((item): item is RoundMatchBestPlayerDraft => Boolean(item))
+  }, [activeFixtureRound, activeRoundMatchMvpOptions, playedMatchesRecords, playersById, teamIdByNormalizedName])
+
+  const mergedActiveRoundMatchBestPlayers = useMemo(() => {
+    const map = new Map<string, RoundMatchBestPlayerDraft>()
+    playedRoundBestPlayers.forEach((item) => map.set(item.matchKey, item))
+    activeRoundMatchBestPlayers.forEach((item) => map.set(item.matchKey, item))
+    return Array.from(map.values())
+  }, [activeRoundMatchBestPlayers, playedRoundBestPlayers])
+
+  const activeRoundBestPlayerByMatch = useMemo(() => {
+    const map = new Map<string, RoundMatchBestPlayerDraft>()
+    mergedActiveRoundMatchBestPlayers.forEach((item) => {
+      map.set(item.matchKey, item)
+    })
+    return map
+  }, [mergedActiveRoundMatchBestPlayers])
+
+  const mergedActiveRoundBestPlayerId = useMemo(() => {
+    const exists = mergedActiveRoundMatchBestPlayers.some((item) => item.playerId === activeRoundAwards.roundBestPlayerId)
+    return exists ? activeRoundAwards.roundBestPlayerId : ''
+  }, [activeRoundAwards.roundBestPlayerId, mergedActiveRoundMatchBestPlayers])
+
+  const mergedRoundBestPlayerOptions = useMemo(() => {
     const unique = new Map<string, RoundMatchBestPlayerDraft>()
-    activeRoundMatchBestPlayers.forEach((item) => {
+    mergedActiveRoundMatchBestPlayers.forEach((item) => {
       if (!unique.has(item.playerId)) {
         unique.set(item.playerId, item)
       }
     })
     return Array.from(unique.values())
-  }, [activeRoundMatchBestPlayers])
+  }, [mergedActiveRoundMatchBestPlayers])
+
+  const activeRoundMvpCountByPlayerId = useMemo(() => {
+    const map = new Map<string, number>()
+    mergedActiveRoundMatchBestPlayers.forEach((item) => {
+      map.set(item.playerId, (map.get(item.playerId) ?? 0) + 1)
+    })
+    return map
+  }, [mergedActiveRoundMatchBestPlayers])
+
+  const seasonMatchMvpRanking = useMemo(() => {
+    const map = new Map<string, { playerId: string; playerName: string; teamName: string; teamId: string; photoUrl?: string; votes: number }>()
+
+    playedMatchesRecords.forEach((record) => {
+      if (!record.playerOfMatchId || !record.playerOfMatchName) return
+      const rosterPlayer = playersById.get(record.playerOfMatchId)
+      const snapshotPlayer = record.players.find((player) => player.playerId === record.playerOfMatchId)
+
+      const teamId = rosterPlayer?.teamId ?? snapshotPlayer?.teamId
+      const teamName = rosterPlayer?.teamName ?? snapshotPlayer?.teamName
+      if (!teamId || !teamName) return
+
+      const current = map.get(record.playerOfMatchId)
+      if (!current) {
+        map.set(record.playerOfMatchId, {
+          playerId: record.playerOfMatchId,
+          playerName: record.playerOfMatchName,
+          teamName,
+          teamId,
+          photoUrl: rosterPlayer?.photoUrl,
+          votes: 1,
+        })
+        return
+      }
+
+      current.votes += 1
+    })
+
+    return Array.from(map.values()).sort((left, right) => {
+      if (right.votes !== left.votes) return right.votes - left.votes
+      return left.playerName.localeCompare(right.playerName, 'es', { sensitivity: 'base' })
+    })
+  }, [playedMatchesRecords, playersById])
 
   const roundCompletedMatchesCount = playedMatchesCountByRound[activeFixtureRound] ?? 0
   const totalRoundMatches = fixtureMatchesByRound.length
@@ -1053,17 +1175,17 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       showMessage(`Aún no se puede publicar MVP: partidos culminados ${roundCompletedMatchesCount}/${totalRoundMatches} en la fecha`)
       return
     }
-    if (activeRoundMatchBestPlayers.length === 0) {
+    if (mergedActiveRoundMatchBestPlayers.length === 0) {
       showMessage('Selecciona al menos una mejor jugadora por partido para guardar')
       return
     }
 
-    const roundBestPlayer = roundBestPlayerOptions.find((item) => item.playerId === activeRoundBestPlayerId)
+    const roundBestPlayer = mergedRoundBestPlayerOptions.find((item) => item.playerId === mergedActiveRoundBestPlayerId)
 
     const response = await apiService.saveRoundAwards(selectedLeague.id, {
       categoryId: activeCategoryId,
       round: activeFixtureRound,
-      matchBestPlayers: activeRoundMatchBestPlayers,
+      matchBestPlayers: mergedActiveRoundMatchBestPlayers,
       ...(roundBestPlayer
         ? {
             roundBestPlayerId: roundBestPlayer.playerId,
@@ -1123,7 +1245,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       return
     }
 
-    if (activeRoundMatchBestPlayers.length === 0) {
+    if (mergedActiveRoundMatchBestPlayers.length === 0) {
       showMessage('Primero registra las mejores jugadoras por partido')
       return
     }
@@ -1133,13 +1255,13 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     lines.push(`Mejores jugadoras · Fecha ${activeFixtureRound}`)
     lines.push('')
 
-    activeRoundMatchBestPlayers.forEach((entry) => {
+    mergedActiveRoundMatchBestPlayers.forEach((entry) => {
       const homeName = teamMap.get(entry.homeTeamId)?.name ?? 'Local'
       const awayName = teamMap.get(entry.awayTeamId)?.name ?? 'Visitante'
       lines.push(`• ${homeName} vs ${awayName}: ${entry.playerName} (${entry.teamName})`)
     })
 
-    const roundBestPlayer = roundBestPlayerOptions.find((item) => item.playerId === activeRoundBestPlayerId)
+    const roundBestPlayer = mergedRoundBestPlayerOptions.find((item) => item.playerId === mergedActiveRoundBestPlayerId)
     if (roundBestPlayer) {
       lines.push('')
       lines.push(`⭐ Jugadora de la fecha: ${roundBestPlayer.playerName} (${roundBestPlayer.teamName})`)
@@ -2364,18 +2486,21 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   </div>
 
                   <div className="mt-3 space-y-2">
-                    {activeRoundMatchBestPlayers.length === 0 && (
+                    {mergedActiveRoundMatchBestPlayers.length === 0 && (
                       <p className="text-xs text-slate-500">Aún no hay jugadoras seleccionadas para esta fecha.</p>
                     )}
-                    {activeRoundMatchBestPlayers.map((item) => {
+                    {mergedActiveRoundMatchBestPlayers.map((item) => {
                       const homeTeam = teamMap.get(item.homeTeamId)
                       const awayTeam = teamMap.get(item.awayTeamId)
                       const homeName = homeTeam?.name ?? 'Local'
                       const awayName = awayTeam?.name ?? 'Visitante'
                       const homeShortName = abbreviateTeamName(homeName)
                       const awayShortName = abbreviateTeamName(awayName)
+                      const candidatePhotoUrl = playersById.get(item.playerId)?.photoUrl
+                      const isRoundBest = mergedActiveRoundBestPlayerId === item.playerId
+                      const mvpCountInRound = activeRoundMvpCountByPlayerId.get(item.playerId) ?? 1
                       return (
-                        <div key={item.matchKey} className="rounded border border-slate-200 bg-slate-50 px-2 py-2">
+                        <div key={item.matchKey} className={`rounded border px-2 py-2 ${isRoundBest ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-slate-50'}`}>
                           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                             <div className="flex min-w-0 items-center gap-2">
                               <TeamLogo logoUrl={homeTeam?.logoUrl} name={homeName} sizeClass="h-7 w-7" />
@@ -2393,18 +2518,50 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                               <TeamLogo logoUrl={awayTeam?.logoUrl} name={awayName} sizeClass="h-7 w-7" />
                             </div>
                           </div>
-                          <p className="mt-1 text-[11px] text-slate-700">⭐ {item.playerName} · {item.teamName}</p>
+                          <div className="mt-2 flex items-center gap-2">
+                            {candidatePhotoUrl ? (
+                              <img src={candidatePhotoUrl} alt={item.playerName} className="h-8 w-8 rounded-full border border-slate-300 object-cover" />
+                            ) : (
+                              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-slate-100 text-[10px] font-semibold text-slate-600">
+                                MVP
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="truncate text-[11px] font-semibold text-slate-800">⭐ {item.playerName}</p>
+                              <p className="truncate text-[10px] text-slate-600">{item.teamName}</p>
+                            </div>
+                            {mvpCountInRound > 1 && (
+                              <span className="ml-auto rounded border border-fuchsia-300 bg-fuchsia-100 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-700">
+                                x{mvpCountInRound} en fecha
+                              </span>
+                            )}
+                          </div>
+                          {isRoundBest && (
+                            <p className="mt-1 rounded border border-amber-300/70 bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-900">
+                              🏅 Seleccionada como jugadora de la fecha
+                            </p>
+                          )}
                         </div>
                       )
                     })}
                   </div>
 
                   {(() => {
-                    const roundBestPlayer = roundBestPlayerOptions.find((item) => item.playerId === activeRoundBestPlayerId)
+                    const roundBestPlayer = mergedRoundBestPlayerOptions.find((item) => item.playerId === mergedActiveRoundBestPlayerId)
                     if (!roundBestPlayer) return null
+                    const roundBestPhotoUrl = playersById.get(roundBestPlayer.playerId)?.photoUrl
                     return (
-                      <div className="mt-3 rounded border border-amber-300/60 bg-amber-100 px-2 py-1 text-xs text-amber-900">
-                        🏅 Jugadora de la fecha: {roundBestPlayer.playerName} ({roundBestPlayer.teamName})
+                      <div className="mt-3 rounded border border-amber-300/60 bg-amber-100 px-2 py-2 text-xs text-amber-900">
+                        <div className="flex items-center gap-2">
+                          {roundBestPhotoUrl ? (
+                            <img src={roundBestPhotoUrl} alt={roundBestPlayer.playerName} className="h-9 w-9 rounded-full border border-amber-400 object-cover" />
+                          ) : (
+                            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-amber-400 bg-amber-50 text-[10px] font-bold text-amber-700">
+                              MVP
+                            </div>
+                          )}
+                          <p className="font-semibold">🏅 Jugadora de la fecha: {roundBestPlayer.playerName} ({roundBestPlayer.teamName})</p>
+                        </div>
                       </div>
                     )
                   })()}
@@ -2443,13 +2600,13 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
                 <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto] md:items-center">
                   <select
-                    value={activeRoundBestPlayerId}
+                    value={mergedActiveRoundBestPlayerId}
                     onChange={(event) => {
                       const nextRoundBestPlayerId = event.target.value
                       setRoundAwardsByRound((current) => ({
                         ...current,
                         [activeFixtureRound]: {
-                          matchBestPlayers: activeRoundMatchBestPlayers,
+                          matchBestPlayers: mergedActiveRoundMatchBestPlayers,
                           roundBestPlayerId: nextRoundBestPlayerId,
                         },
                       }))
@@ -2457,16 +2614,19 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     className="rounded border border-amber-300/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-100"
                   >
                     <option value="">Selecciona jugadora de la fecha</option>
-                    {roundBestPlayerOptions.map((item) => (
+                    {mergedRoundBestPlayerOptions.map((item) => {
+                      const roundCount = activeRoundMvpCountByPlayerId.get(item.playerId) ?? 1
+                      return (
                       <option key={item.playerId} value={item.playerId}>
-                        {item.playerName} · {item.teamName}
+                        {item.playerName} · {item.teamName} · MVP partido x{roundCount}
                       </option>
-                    ))}
+                      )
+                    })}
                   </select>
 
                   <button
                     type="button"
-                    disabled={isReadOnlySeason || activeRoundMatchBestPlayers.length === 0 || !isActiveRoundCompleted}
+                    disabled={isReadOnlySeason || mergedActiveRoundMatchBestPlayers.length === 0 || !isActiveRoundCompleted}
                     onClick={() => void saveRoundAwards()}
                     className="rounded border border-fuchsia-300/40 bg-fuchsia-500/20 px-3 py-1 text-xs font-semibold text-fuchsia-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
@@ -2474,22 +2634,37 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   </button>
                 </div>
 
-                <div className="mt-4 rounded border border-white/10 bg-slate-900/70 p-2">
+                <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  <div className="rounded border border-white/10 bg-slate-900/70 p-2">
                   <p className="text-xs font-semibold text-white">Top 5 acumulado · Jugadora de la fecha</p>
-                  <div className="mt-2 space-y-1">
+                  <div className="mt-2 space-y-1 text-xs">
                     {top5RoundAwardsRanking.length === 0 && (
-                      <p className="text-xs text-slate-400">Aún no hay votos guardados de jugadora de la fecha.</p>
+                      <p className="text-slate-400">Aún no hay votos guardados de jugadora de la fecha.</p>
                     )}
                     {top5RoundAwardsRanking.map((item, index) => (
-                      <p key={item.playerId} className="text-xs text-slate-200">
+                      <p key={item.playerId} className="text-slate-200">
                         {index + 1}. {item.playerName} ({item.teamName}) · {item.votes} voto{item.votes === 1 ? '' : 's'}
                       </p>
                     ))}
                     {top5RoundAwardsRanking[0] && (
-                      <p className="mt-2 rounded border border-emerald-300/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-100">
+                      <p className="mt-2 rounded border border-emerald-300/40 bg-emerald-500/10 px-2 py-1 text-emerald-100">
                         Líder de temporada: {top5RoundAwardsRanking[0].playerName} ({top5RoundAwardsRanking[0].teamName}) · {top5RoundAwardsRanking[0].votes} votos
                       </p>
                     )}
+                  </div>
+                  </div>
+                  <div className="rounded border border-white/10 bg-slate-900/70 p-2">
+                    <p className="text-xs font-semibold text-white">Top 5 acumulado · MVP por partido</p>
+                    <div className="mt-2 space-y-1 text-xs">
+                      {seasonMatchMvpRanking.length === 0 && (
+                        <p className="text-slate-400">Aún no hay MVP de partido registrados.</p>
+                      )}
+                      {seasonMatchMvpRanking.slice(0, 5).map((item, index) => (
+                        <p key={item.playerId} className="text-slate-200">
+                          {index + 1}. {item.playerName} ({item.teamName}) · {item.votes} MVP{item.votes === 1 ? '' : 's'}
+                        </p>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
