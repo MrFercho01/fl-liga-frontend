@@ -628,6 +628,11 @@ export const apiService = {
           substitutes: string[]
           formationKey?: string
         }
+        highlightVideos?: Array<{
+          id: string
+          name: string
+          url: string
+        }>
         playedAt: string
       }>
       roundAwards: Array<{
@@ -702,6 +707,11 @@ export const apiService = {
               substitutes: string[]
               formationKey?: string
             }
+            highlightVideos?: Array<{
+              id: string
+              name: string
+              url: string
+            }>
             playedAt: string
           }>
           roundAwards: Array<{
