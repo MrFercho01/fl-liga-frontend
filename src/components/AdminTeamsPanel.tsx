@@ -558,7 +558,9 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const teamMap = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams])
 
   const sortedTeams = useMemo(() => {
-    return [...teams].sort((left, right) => left.name.localeCompare(right.name, 'es', { sensitivity: 'base' }))
+    return [...teams]
+      .filter((team) => team.active !== false)
+      .sort((left, right) => left.name.localeCompare(right.name, 'es', { sensitivity: 'base' }))
   }, [teams])
 
   const fixtureRounds = useMemo(() => {
@@ -1404,6 +1406,22 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     await loadTeams()
   }
 
+  const toggleTeamActive = async (team: RegisteredTeam, nextActive: boolean) => {
+    if (isReadOnlySeason) {
+      showMessage('Temporada histórica: solo lectura')
+      return
+    }
+
+    const response = await apiService.updateTeam(team.id, { active: nextActive })
+    if (!response.ok) {
+      showMessage(response.message)
+      return
+    }
+
+    showMessage(nextActive ? 'Equipo reactivado' : 'Equipo desactivado y excluido de historial/tabla')
+    await loadTeams()
+  }
+
   const updatePlayerEdit = (teamId: string, playerId: string, payload: PlayerDraft) => {
     setPlayerEditById((current) => ({
       ...current,
@@ -1830,10 +1848,13 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                 {loading && <p className="text-sm text-slate-300">Cargando equipos...</p>}
                 {!loading && teamPagination.pageItems.length === 0 && <p className="text-sm text-slate-300">No hay equipos en esta categoría.</p>}
                 {teamPagination.pageItems.map((team) => (
-                  <div key={team.id} className="rounded border border-white/10 bg-slate-800 p-3">
+                  <div key={team.id} className={`rounded border p-3 ${team.active === false ? 'border-amber-300/40 bg-amber-950/20' : 'border-white/10 bg-slate-800'}`}>
                     <div className="flex items-center gap-2">
                       {team.logoUrl && <img src={team.logoUrl} alt={team.name} className="h-10 w-10 rounded border border-white/20 bg-white object-contain p-1" />}
                       <p className="font-semibold text-white">{team.name}</p>
+                      {team.active === false && (
+                        <span className="rounded-full border border-amber-300/50 bg-amber-500/20 px-2 py-0.5 text-[11px] font-semibold text-amber-100">Desactivado</span>
+                      )}
                     </div>
                     <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-[1.2fr_1fr_1fr_1fr_auto_auto]">
                       <input value={teamEditById[team.id]?.name ?? team.name} onChange={(event) => updateTeamEdit(team, 'name', event.target.value)} className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
@@ -1847,6 +1868,14 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                       <input value={teamEditById[team.id]?.directorName ?? team.technicalStaff?.director?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'directorName', event.target.value)} placeholder="DT" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
                       <input value={teamEditById[team.id]?.assistantName ?? team.technicalStaff?.assistant?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'assistantName', event.target.value)} placeholder="AT" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
                       <button type="button" disabled={isReadOnlySeason} onClick={() => void saveTeamEdit(team)} className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-1 text-xs font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60">Guardar</button>
+                      <button
+                        type="button"
+                        disabled={isReadOnlySeason}
+                        onClick={() => void toggleTeamActive(team, team.active === false)}
+                        className={`rounded border px-2 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${team.active === false ? 'border-emerald-300/40 bg-emerald-500/20 text-emerald-100' : 'border-amber-300/50 bg-amber-500/20 text-amber-100'}`}
+                      >
+                        {team.active === false ? 'Reactivar' : 'Desactivar'}
+                      </button>
                       <button type="button" disabled={isReadOnlySeason} onClick={() => requestDeleteTeam(team)} className="rounded border border-rose-300/50 bg-rose-600/20 px-2 py-1 text-xs font-semibold text-rose-100 disabled:cursor-not-allowed disabled:opacity-60">Eliminar</button>
                     </div>
                     <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-2">

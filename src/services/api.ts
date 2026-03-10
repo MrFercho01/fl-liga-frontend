@@ -1071,6 +1071,7 @@ export const apiService = {
     payload: {
       name?: string
       categoryId?: string
+      active?: boolean
       logoUrl?: string
       primaryColor?: string
       secondaryColor?: string
