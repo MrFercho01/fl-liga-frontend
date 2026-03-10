@@ -3317,9 +3317,9 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                   </div>
 
                   {selectedMatchHistory?.record.highlightVideos && selectedMatchHistory.record.highlightVideos.length > 0 ? (
-                    <div className="mt-2 max-h-[30rem] space-y-2 overflow-y-auto pr-1">
+                    <div className="mt-2 flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 md:grid md:max-h-[30rem] md:grid-cols-1 md:gap-2 md:overflow-x-hidden md:overflow-y-auto md:pr-1">
                       {selectedMatchHistory.record.highlightVideos.map((video) => (
-                        <div key={video.id} className="rounded border border-white/10 bg-slate-900/70 p-2">
+                        <div key={video.id} className="min-w-[18rem] snap-start rounded border border-white/10 bg-slate-900/70 p-2 md:min-w-0">
                           <p className="mb-2 truncate text-[11px] font-semibold text-slate-200">{video.name}</p>
                           <video src={video.url} controls preload="metadata" playsInline className="w-full rounded-lg bg-slate-950" />
                         </div>
