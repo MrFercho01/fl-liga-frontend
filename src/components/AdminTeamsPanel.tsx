@@ -285,6 +285,9 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [playerPositionFilter, setPlayerPositionFilter] = useState<'TODAS' | 'POR' | 'DEF' | 'MED' | 'DEL'>('TODAS')
   const [playerPage, setPlayerPage] = useState(1)
 
+  const [videoFormByMatch, setVideoFormByMatch] = useState<Record<string, { file: File | null; name: string; url: string; mode: 'file' | 'url' }>>({})
+  const [videoUploadingByMatch, setVideoUploadingByMatch] = useState<Record<string, boolean>>({})
+
 
   const categoryOptions = selectedLeague?.categories ?? []
   const activeCategoryId =
@@ -1422,6 +1425,54 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     await loadTeams()
   }
 
+  const handleUploadMatchVideo = async (matchId: string, categoryId: string) => {
+    if (!selectedLeague) return
+    const form = videoFormByMatch[matchId] ?? { file: null, name: '', url: '', mode: 'file' as const }
+    const hasFile = form.mode !== 'url' && form.file
+    const hasUrl = form.mode === 'url' && form.url.trim()
+    if (!hasFile && !hasUrl) {
+      showMessage('Selecciona un archivo o ingresa una URL')
+      return
+    }
+    setVideoUploadingByMatch((prev) => ({ ...prev, [matchId]: true }))
+    try {
+      let response
+      if (hasFile && form.file) {
+        response = await apiService.uploadPlayedMatchVideo(selectedLeague.id, matchId, {
+          categoryId,
+          file: form.file,
+          name: form.name.trim() || undefined,
+        })
+      } else {
+        response = await apiService.addPlayedMatchVideo(selectedLeague.id, matchId, {
+          categoryId,
+          name: form.name.trim() || 'Video',
+          url: form.url.trim(),
+        })
+      }
+      if (!response.ok) {
+        showMessage(response.message)
+        return
+      }
+      showMessage('Video agregado')
+      setVideoFormByMatch((prev) => ({ ...prev, [matchId]: { file: null, name: '', url: '', mode: 'file' } }))
+      await refreshFixture(false)
+    } finally {
+      setVideoUploadingByMatch((prev) => ({ ...prev, [matchId]: false }))
+    }
+  }
+
+  const handleDeleteMatchVideo = async (matchId: string, videoId: string, categoryId: string) => {
+    if (!selectedLeague) return
+    const response = await apiService.deletePlayedMatchVideo(selectedLeague.id, matchId, videoId, categoryId)
+    if (!response.ok) {
+      showMessage(response.message)
+      return
+    }
+    showMessage('Video eliminado')
+    await refreshFixture(false)
+  }
+
   const updatePlayerEdit = (teamId: string, playerId: string, payload: PlayerDraft) => {
     setPlayerEditById((current) => ({
       ...current,
@@ -2471,6 +2522,89 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   </div>
                 </div>
               </div>
+
+              {/* Videos de partidos jugados */}
+              {playedMatchesRecords.filter((r) => r.round === activeFixtureRound).length > 0 && (
+                <div className="mt-4 rounded border border-cyan-300/20 bg-cyan-900/10 p-3">
+                  <p className="mb-2 text-xs font-semibold text-white">Videos · Partidos jugados en Fecha {activeFixtureRound}</p>
+                  <div className="flex flex-col gap-3">
+                    {playedMatchesRecords
+                      .filter((r) => r.round === activeFixtureRound)
+                      .map((record) => {
+                        const form = videoFormByMatch[record.matchId] ?? { file: null, name: '', url: '', mode: 'file' as const }
+                        const isUploading = videoUploadingByMatch[record.matchId] ?? false
+                        return (
+                          <div key={record.matchId} className="rounded border border-white/10 bg-slate-800/50 p-2">
+                            <p className="mb-1 text-xs font-medium text-slate-200">
+                              {record.homeTeamName} {record.homeStats.goals} – {record.awayStats.goals} {record.awayTeamName}
+                            </p>
+                            {record.highlightVideos.length > 0 ? (
+                              <div className="mb-2 flex flex-col gap-1">
+                                {record.highlightVideos.map((video) => (
+                                  <div key={video.id} className="flex items-center gap-2">
+                                    <a href={video.url} target="_blank" rel="noreferrer" className="flex-1 truncate text-xs text-cyan-300 underline">{video.name}</a>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleDeleteMatchVideo(record.matchId, video.id, record.categoryId)}
+                                      className="text-xs text-red-400 hover:text-red-300"
+                                    >✕</button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="mb-2 text-xs text-slate-500">Sin videos</p>
+                            )}
+                            <div className="flex flex-col gap-1">
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setVideoFormByMatch((prev) => ({ ...prev, [record.matchId]: { ...(prev[record.matchId] ?? { file: null, name: '', url: '' }), mode: 'file' } }))}
+                                  className={`rounded px-2 py-0.5 text-xs ${form.mode !== 'url' ? 'bg-cyan-600/40 text-cyan-100' : 'text-slate-400'}`}
+                                >Archivo</button>
+                                <button
+                                  type="button"
+                                  onClick={() => setVideoFormByMatch((prev) => ({ ...prev, [record.matchId]: { ...(prev[record.matchId] ?? { file: null, name: '', url: '' }), mode: 'url' } }))}
+                                  className={`rounded px-2 py-0.5 text-xs ${form.mode === 'url' ? 'bg-cyan-600/40 text-cyan-100' : 'text-slate-400'}`}
+                                >URL</button>
+                              </div>
+                              <input
+                                type="text"
+                                placeholder="Nombre del video (opcional)"
+                                value={form.name}
+                                onChange={(e) => setVideoFormByMatch((prev) => ({ ...prev, [record.matchId]: { ...(prev[record.matchId] ?? { file: null, url: '', mode: 'file' as const }), name: e.target.value } }))}
+                                className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white placeholder-slate-500"
+                              />
+                              {form.mode !== 'url' ? (
+                                <input
+                                  type="file"
+                                  accept="video/*"
+                                  onChange={(e) => setVideoFormByMatch((prev) => ({ ...prev, [record.matchId]: { ...(prev[record.matchId] ?? { name: '', url: '', mode: 'file' as const }), file: e.target.files?.[0] ?? null } }))}
+                                  className="text-xs text-slate-300"
+                                />
+                              ) : (
+                                <input
+                                  type="url"
+                                  placeholder="https://..."
+                                  value={form.url}
+                                  onChange={(e) => setVideoFormByMatch((prev) => ({ ...prev, [record.matchId]: { ...(prev[record.matchId] ?? { file: null, name: '', mode: 'url' as const }), url: e.target.value } }))}
+                                  className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white placeholder-slate-500"
+                                />
+                              )}
+                              <button
+                                type="button"
+                                disabled={isUploading}
+                                onClick={() => void handleUploadMatchVideo(record.matchId, record.categoryId)}
+                                className="self-end rounded border border-cyan-300/40 bg-cyan-600/20 px-3 py-1 text-xs font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {isUploading ? 'Subiendo...' : 'Agregar video'}
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                  </div>
+                </div>
+              )}
 
             </>
           )}

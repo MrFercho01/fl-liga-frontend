@@ -1449,4 +1449,28 @@ export const apiService = {
       return { ok: false, message: 'Sin conexión con backend' }
     }
   },
+
+  async deletePlayedMatchVideo(
+    leagueId: string,
+    matchId: string,
+    videoId: string,
+    categoryId: string,
+  ): Promise<ApiResponse<PlayedMatchRecord>> {
+    try {
+      const response = await apiFetch(
+        `${apiBaseUrl}/api/admin/leagues/${leagueId}/played-matches/${matchId}/videos/${videoId}?categoryId=${encodeURIComponent(categoryId)}`,
+        { method: 'DELETE' },
+      )
+
+      if (!response.ok) {
+        const errorPayload = (await response.json()) as { message?: string }
+        return { ok: false, message: errorPayload.message ?? 'No se pudo eliminar el video' }
+      }
+
+      const responsePayload = (await response.json()) as { data: PlayedMatchRecord }
+      return { ok: true, data: responsePayload.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
 }
