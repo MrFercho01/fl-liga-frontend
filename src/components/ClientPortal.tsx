@@ -3317,7 +3317,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                   </div>
 
                   {selectedMatchHistory?.record.highlightVideos && selectedMatchHistory.record.highlightVideos.length > 0 ? (
-                    <div className="mt-2 grid gap-2 xl:grid-cols-1">
+                    <div className="mt-2 max-h-[30rem] space-y-2 overflow-y-auto pr-1">
                       {selectedMatchHistory.record.highlightVideos.map((video) => (
                         <div key={video.id} className="rounded border border-white/10 bg-slate-900/70 p-2">
                           <p className="mb-2 truncate text-[11px] font-semibold text-slate-200">{video.name}</p>
