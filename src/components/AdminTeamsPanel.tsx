@@ -2539,15 +2539,20 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                               {record.homeTeamName} {record.homeStats.goals} – {record.awayStats.goals} {record.awayTeamName}
                             </p>
                             {record.highlightVideos.length > 0 ? (
-                              <div className="mb-2 flex flex-col gap-1">
+                              <div className="mb-2 grid gap-2 md:grid-cols-2">
                                 {record.highlightVideos.map((video) => (
-                                  <div key={video.id} className="flex items-center gap-2">
-                                    <a href={video.url} target="_blank" rel="noreferrer" className="flex-1 truncate text-xs text-cyan-300 underline">{video.name}</a>
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleDeleteMatchVideo(record.matchId, video.id, record.categoryId)}
-                                      className="text-xs text-red-400 hover:text-red-300"
-                                    >✕</button>
+                                  <div key={video.id} className="rounded border border-white/10 bg-slate-900/60 p-2">
+                                    <div className="mb-2 flex items-center justify-between gap-2">
+                                      <p className="truncate text-xs text-cyan-100">{video.name}</p>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleDeleteMatchVideo(record.matchId, video.id, record.categoryId)}
+                                        className="rounded border border-red-400/30 bg-red-500/10 px-2 py-1 text-[10px] font-semibold text-red-200 hover:bg-red-500/20"
+                                      >
+                                        Eliminar
+                                      </button>
+                                    </div>
+                                    <video src={video.url} controls className="w-full rounded" />
                                   </div>
                                 ))}
                               </div>

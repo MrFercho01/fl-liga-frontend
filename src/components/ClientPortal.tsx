@@ -98,6 +98,11 @@ interface PublicFixturePayload {
       substitutes: string[]
       formationKey?: string
     }
+    highlightVideos?: Array<{
+      id: string
+      name: string
+      url: string
+    }>
     playedAt: string
   }>
   roundAwards: Array<{
@@ -3294,6 +3299,36 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                         </table>
                       </div>
                     </>
+                  )}
+                </div>
+
+                <div
+                  className="mt-3 rounded-xl border p-2 text-xs"
+                  style={{
+                    borderColor: withAlpha('#ffffff', 0.15),
+                    backgroundColor: withAlpha('#020617', 0.76),
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold text-slate-200">Highlights</p>
+                    <span className="rounded border border-white/20 bg-slate-900/70 px-2 py-0.5 text-[10px] text-slate-300">
+                      {selectedMatchHistory?.record.highlightVideos?.length ?? 0} {(selectedMatchHistory?.record.highlightVideos?.length ?? 0) === 1 ? 'video' : 'videos'}
+                    </span>
+                  </div>
+
+                  {selectedMatchHistory?.record.highlightVideos && selectedMatchHistory.record.highlightVideos.length > 0 ? (
+                    <div className="mt-2 grid gap-2 xl:grid-cols-1">
+                      {selectedMatchHistory.record.highlightVideos.map((video) => (
+                        <div key={video.id} className="rounded border border-white/10 bg-slate-900/70 p-2">
+                          <p className="mb-2 truncate text-[11px] font-semibold text-slate-200">{video.name}</p>
+                          <video src={video.url} controls preload="metadata" playsInline className="w-full rounded-lg bg-slate-950" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 rounded border border-dashed border-white/20 bg-slate-900/60 px-2 py-1.5 text-[11px] text-slate-400">
+                      Todavia no hay highlights publicados para este partido.
+                    </p>
                   )}
                 </div>
 

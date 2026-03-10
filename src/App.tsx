@@ -2870,6 +2870,33 @@ function App() {
     }
   }
 
+  const deleteHighlightVideo = async (matchId: string, videoId: string) => {
+    if (!selectedLeague || !activeMatchCategoryId) return
+
+    try {
+      const response = await apiService.deletePlayedMatchVideo(
+        selectedLeague.id,
+        matchId,
+        videoId,
+        activeMatchCategoryId,
+      )
+
+      if (!response.ok) {
+        applyActionFeedback(false, '', response.message)
+        return
+      }
+
+      setPlayedMatchesMap((current) => ({
+        ...current,
+        [response.data.matchId]: response.data as PlayedMatchRecord,
+      }))
+
+      applyActionFeedback(true, 'Video eliminado del partido', '')
+    } catch {
+      applyActionFeedback(false, '', 'No se pudo eliminar el video')
+    }
+  }
+
   const mvpCandidates = useMemo(() => {
     if (!liveMatch) return [] as Array<{ id: string; name: string; teamName: string; teamId: string; photoUrl?: string; number: number }>
 
@@ -5371,7 +5398,16 @@ function App() {
                         <div className="mt-2 grid gap-2 md:grid-cols-2">
                           {selectedPlayedStatsScoped.highlightVideos.map((video) => (
                             <div key={video.id} className="rounded border border-white/10 bg-slate-800 p-2">
-                              <p className="mb-1 text-[11px] text-slate-300">{video.name}</p>
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <p className="text-[11px] text-slate-300">{video.name}</p>
+                                <button
+                                  type="button"
+                                  onClick={() => void deleteHighlightVideo(selectedPlayedStatsScoped.matchId, video.id)}
+                                  className="rounded border border-red-400/30 bg-red-500/10 px-2 py-1 text-[10px] font-semibold text-red-200 hover:bg-red-500/20"
+                                >
+                                  Eliminar
+                                </button>
+                              </div>
                               <video src={video.url} controls className="w-full rounded" />
                             </div>
                           ))}
