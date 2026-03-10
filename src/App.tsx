@@ -297,15 +297,6 @@ const buildRoundLabel = (
   return `Fase final ${round - rules.regularSeasonRounds}`
 }
 
-const toDataUrl = async (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
-    reader.onerror = () => reject(new Error('No se pudo leer el archivo'))
-    reader.readAsDataURL(file)
-  })
-}
-
 const dataUrlToFile = async (dataUrl: string, fileName: string) => {
   const response = await fetch(dataUrl)
   const blob = await response.blob()
@@ -2846,13 +2837,21 @@ function App() {
   const addHighlightVideo = async (matchId: string, file: File) => {
     if (!selectedLeague || !activeMatchCategoryId) return
 
-    try {
-      const dataUrl = await toDataUrl(file)
+    if (!file.type.startsWith('video/')) {
+      applyActionFeedback(false, '', 'Selecciona un archivo de video válido')
+      return
+    }
 
-      const response = await apiService.addPlayedMatchVideo(selectedLeague.id, matchId, {
+    if (file.size > 12 * 1024 * 1024) {
+      applyActionFeedback(false, '', 'El video supera 12MB. Sube clips cortos para mejor rendimiento.')
+      return
+    }
+
+    try {
+      const response = await apiService.uploadPlayedMatchVideo(selectedLeague.id, matchId, {
         categoryId: activeMatchCategoryId,
+        file,
         name: file.name,
-        url: dataUrl,
       })
 
       if (!response.ok) {
@@ -2865,7 +2864,7 @@ function App() {
         [response.data.matchId]: response.data as PlayedMatchRecord,
       }))
 
-      applyActionFeedback(true, 'Video de mejores jugadas cargado', '')
+      applyActionFeedback(true, 'Video de mejores jugadas cargado en Mongo', '')
     } catch {
       applyActionFeedback(false, '', 'No se pudo cargar el video')
     }
@@ -5350,9 +5349,10 @@ function App() {
                       )}
                     </div>
 
-                    {selectedPlayedStatsScoped.homeStats.goals === 0 && selectedPlayedStatsScoped.awayStats.goals === 0 && (
+                    {
                       <div className="mt-3 rounded border border-white/10 bg-slate-900/60 p-3">
                         <p className="text-xs font-semibold text-white">Mejores jugadas (video)</p>
+                        <p className="mt-1 text-[11px] text-slate-400">Recomendado: clips cortos (hasta 12MB) para ahorrar recursos.</p>
                         <label className="mt-2 inline-block rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">
                           Subir video
                           <input
@@ -5380,7 +5380,7 @@ function App() {
                           )}
                         </div>
                       </div>
-                    )}
+                    }
                   </div>
                 )}
               </div>

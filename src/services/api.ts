@@ -1418,4 +1418,34 @@ export const apiService = {
       return { ok: false, message: 'Sin conexión con backend' }
     }
   },
+
+  async uploadPlayedMatchVideo(
+    leagueId: string,
+    matchId: string,
+    payload: { categoryId: string; file: File; name?: string },
+  ): Promise<ApiResponse<PlayedMatchRecord>> {
+    try {
+      const formData = new FormData()
+      formData.append('categoryId', payload.categoryId)
+      if (payload.name?.trim()) {
+        formData.append('name', payload.name.trim())
+      }
+      formData.append('video', payload.file)
+
+      const response = await apiFetch(`${apiBaseUrl}/api/admin/leagues/${leagueId}/played-matches/${matchId}/videos/upload`, {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const errorPayload = (await response.json()) as { message?: string }
+        return { ok: false, message: errorPayload.message ?? 'No se pudo subir video del partido' }
+      }
+
+      const responsePayload = (await response.json()) as { data: PlayedMatchRecord }
+      return { ok: true, data: responsePayload.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
 }
