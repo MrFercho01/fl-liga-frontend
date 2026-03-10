@@ -1072,6 +1072,8 @@ export const apiService = {
       name?: string
       categoryId?: string
       logoUrl?: string
+      primaryColor?: string
+      secondaryColor?: string
       technicalStaff?: RegisteredTeam['technicalStaff']
     },
   ): Promise<ApiResponse<RegisteredTeam>> {

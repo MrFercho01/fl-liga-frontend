@@ -245,6 +245,8 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [teamEditById, setTeamEditById] = useState<Record<string, {
     name: string
     logoUrl: string
+    primaryColor: string
+    secondaryColor: string
     directorName: string
     directorPhotoUrl: string
     assistantName: string
@@ -1343,7 +1345,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
   const updateTeamEdit = (
     team: RegisteredTeam,
-    field: 'name' | 'logoUrl' | 'directorName' | 'directorPhotoUrl' | 'assistantName' | 'assistantPhotoUrl',
+    field: 'name' | 'logoUrl' | 'primaryColor' | 'secondaryColor' | 'directorName' | 'directorPhotoUrl' | 'assistantName' | 'assistantPhotoUrl',
     value: string,
   ) => {
     setTeamEditById((current) => ({
@@ -1351,6 +1353,8 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       [team.id]: {
         name: current[team.id]?.name ?? team.name,
         logoUrl: current[team.id]?.logoUrl ?? team.logoUrl ?? '',
+        primaryColor: current[team.id]?.primaryColor ?? team.primaryColor ?? '#3b82f6',
+        secondaryColor: current[team.id]?.secondaryColor ?? team.secondaryColor ?? '',
         directorName: current[team.id]?.directorName ?? team.technicalStaff?.director?.name ?? '',
         directorPhotoUrl: current[team.id]?.directorPhotoUrl ?? team.technicalStaff?.director?.photoUrl ?? '',
         assistantName: current[team.id]?.assistantName ?? team.technicalStaff?.assistant?.name ?? '',
@@ -1377,6 +1381,8 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     const response = await apiService.updateTeam(team.id, {
       name: edit.name.trim(),
       logoUrl: edit.logoUrl || undefined,
+      primaryColor: edit.primaryColor || undefined,
+      secondaryColor: edit.secondaryColor || undefined,
       technicalStaff: {
         director: {
           name: edit.directorName.trim(),
@@ -1842,6 +1848,26 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                       <input value={teamEditById[team.id]?.assistantName ?? team.technicalStaff?.assistant?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'assistantName', event.target.value)} placeholder="AT" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
                       <button type="button" disabled={isReadOnlySeason} onClick={() => void saveTeamEdit(team)} className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-1 text-xs font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60">Guardar</button>
                       <button type="button" disabled={isReadOnlySeason} onClick={() => requestDeleteTeam(team)} className="rounded border border-rose-300/50 bg-rose-600/20 px-2 py-1 text-xs font-semibold text-rose-100 disabled:cursor-not-allowed disabled:opacity-60">Eliminar</button>
+                    </div>
+                    <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-2">
+                      <label className="flex items-center gap-2 rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">
+                        Color principal
+                        <input
+                          type="color"
+                          value={teamEditById[team.id]?.primaryColor ?? team.primaryColor ?? '#3b82f6'}
+                          onChange={(event) => updateTeamEdit(team, 'primaryColor', event.target.value)}
+                          className="h-8 w-16 rounded border border-white/20 cursor-pointer"
+                        />
+                      </label>
+                      <label className="flex items-center gap-2 rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">
+                        Color alterno
+                        <input
+                          type="color"
+                          value={teamEditById[team.id]?.secondaryColor ?? team.secondaryColor ?? '#ffffff'}
+                          onChange={(event) => updateTeamEdit(team, 'secondaryColor', event.target.value)}
+                          className="h-8 w-16 rounded border border-white/20 cursor-pointer"
+                        />
+                      </label>
                     </div>
                     <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-2">
                       <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">Foto DT
