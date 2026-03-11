@@ -165,6 +165,14 @@ const parseManualMatchId = (matchId: string, round: number) => {
 
 const buildRoundTeamsKey = (round: number, homeTeamId: string, awayTeamId: string) => `${round}:${homeTeamId}:${awayTeamId}`
 
+const normalizeScheduledAt = (scheduledAt?: string, status?: 'scheduled' | 'postponed') => {
+  if (!scheduledAt) return scheduledAt
+  if (status === 'postponed' && scheduledAt.includes('T05:30')) {
+    return scheduledAt.replace('T05:30', 'T17:30')
+  }
+  return scheduledAt
+}
+
 const normalizeLabel = (value: string) =>
   value
     .trim()
@@ -940,7 +948,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
         const roundItems = scheduleByRound.get(entry.round) ?? []
         roundItems.push({
           ...generated,
-          ...(entry.scheduledAt ? { scheduledAt: entry.scheduledAt } : {}),
+          ...(entry.scheduledAt ? { scheduledAt: normalizeScheduledAt(entry.scheduledAt, entry.status) } : {}),
           ...(entry.venue ? { venue: entry.venue } : {}),
           ...(entry.status ? { status: entry.status } : {}),
           played: fixturePayload.playedMatchIds.includes(entry.matchId),
@@ -962,7 +970,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
         round: entry.round,
         homeTeamId: manual.homeTeamId,
         awayTeamId: manual.awayTeamId,
-        scheduledAt: entry.scheduledAt,
+        scheduledAt: normalizeScheduledAt(entry.scheduledAt, entry.status),
         ...(entry.venue ? { venue: entry.venue } : {}),
         ...(entry.status ? { status: entry.status } : {}),
         played: fixturePayload.playedMatchIds.includes(entry.matchId),
