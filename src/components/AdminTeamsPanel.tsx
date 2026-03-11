@@ -1,5 +1,6 @@
 import { toPng } from 'html-to-image'
 import JSZip from 'jszip'
+import jsQR from 'jsqr'
 import QRCode from 'qrcode'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiService } from '../services/api'
@@ -345,6 +346,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [digitalCardPlayerId, setDigitalCardPlayerId] = useState('')
   const [isGeneratingBulkCards, setIsGeneratingBulkCards] = useState(false)
   const [digitalCardLeagueLogoDataUrl, setDigitalCardLeagueLogoDataUrl] = useState('')
+  const [digitalCardLeagueLogoOverrideDataUrl, setDigitalCardLeagueLogoOverrideDataUrl] = useState('')
   const [digitalCardTeamLogoDataUrl, setDigitalCardTeamLogoDataUrl] = useState('')
   const [digitalCardPlayerPhotoDataUrl, setDigitalCardPlayerPhotoDataUrl] = useState('')
   const [digitalCardQrDataUrl, setDigitalCardQrDataUrl] = useState('')
@@ -786,7 +788,8 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? '')
     .join('')
-  const digitalCardLeagueLogoSrc = digitalCardLeagueLogoDataUrl || selectedLeague?.logoUrl || ''
+  const digitalCardLeagueLogoSrc =
+    digitalCardLeagueLogoOverrideDataUrl || digitalCardLeagueLogoDataUrl || selectedLeague?.logoUrl || ''
   const digitalCardTeamLogoSrc = digitalCardTeamLogoDataUrl || digitalCardTeam?.logoUrl || ''
   const digitalCardPlayerPhotoSrc = digitalCardPlayerPhotoDataUrl || digitalCardPlayer?.photoUrl || ''
 
@@ -983,12 +986,6 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       return
     }
 
-    const BarcodeDetectorCtor = (window as { BarcodeDetector?: new (options?: { formats?: string[] }) => { detect: (input: ImageBitmap | HTMLVideoElement) => Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector
-    if (!BarcodeDetectorCtor) {
-      setQrScanError('Tu navegador no soporta lectura QR por cámara en web. Usa validación por imagen o texto QR.')
-      return
-    }
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment' },
@@ -1001,14 +998,24 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
         await qrVideoRef.current.play()
       }
 
-      const detector = new BarcodeDetectorCtor({ formats: ['qr_code'] })
       setIsQrScanning(true)
 
       qrScanIntervalRef.current = window.setInterval(async () => {
-        if (!qrVideoRef.current) return
+        const video = qrVideoRef.current
+        if (!video) return
+        if (video.readyState < 2) return
+
         try {
-          const codes = await detector.detect(qrVideoRef.current)
-          const rawValue = codes[0]?.rawValue
+          const canvas = document.createElement('canvas')
+          canvas.width = video.videoWidth
+          canvas.height = video.videoHeight
+          const context = canvas.getContext('2d', { willReadFrequently: true })
+          if (!context) return
+
+          context.drawImage(video, 0, 0, canvas.width, canvas.height)
+          const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
+          const code = jsQR(imageData.data, imageData.width, imageData.height)
+          const rawValue = code?.data
           if (rawValue) {
             setQrManualInput(rawValue)
             validateQrPayload(rawValue)
@@ -1027,17 +1034,22 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const validateQrFromImageFile = async (file: File) => {
     setQrScanError('')
 
-    const BarcodeDetectorCtor = (window as { BarcodeDetector?: new (options?: { formats?: string[] }) => { detect: (input: ImageBitmap | HTMLVideoElement) => Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector
-    if (!BarcodeDetectorCtor) {
-      setQrScanError('Tu navegador no soporta lectura QR por imagen. Usa validación por texto QR.')
-      return
-    }
-
     try {
       const bitmap = await createImageBitmap(file)
-      const detector = new BarcodeDetectorCtor({ formats: ['qr_code'] })
-      const codes = await detector.detect(bitmap)
-      const rawValue = codes[0]?.rawValue
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const context = canvas.getContext('2d', { willReadFrequently: true })
+      if (!context) {
+        bitmap.close()
+        setQrScanError('No se pudo preparar la imagen para validar QR.')
+        return
+      }
+
+      context.drawImage(bitmap, 0, 0)
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
+      const code = jsQR(imageData.data, imageData.width, imageData.height)
+      const rawValue = code?.data
       bitmap.close()
 
       if (!rawValue) {
@@ -2422,10 +2434,15 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   {league.season < latestSeason && (
                     <p className="mb-1 text-[10px] text-amber-200">Temporada histórica · solo lectura</p>
                   )}
-                  <button type="button" onClick={() => onLeagueSelect(league.id)} className="mb-2 w-full text-left">
-                    <p className="font-semibold">{league.name}</p>
-                    <p className="text-[11px] text-slate-400">{league.country} · Temporada {league.season}</p>
-                    {league.slogan && <p className="text-[11px] text-primary-200">{league.slogan}</p>}
+                  <p className="font-semibold">{league.name}</p>
+                  <p className="text-[11px] text-slate-400">{league.country} · Temporada {league.season}</p>
+                  {league.slogan && <p className="text-[11px] text-primary-200">{league.slogan}</p>}
+                  <button
+                    type="button"
+                    onClick={() => onLeagueSelect(league.id)}
+                    className="mt-2 rounded border border-primary-300/40 bg-primary-500/20 px-2 py-1 text-[11px] font-semibold text-primary-100"
+                  >
+                    Seleccionar liga
                   </button>
                 </div>
               ))}
@@ -2885,6 +2902,30 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                 </select>
               </div>
 
+              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                <label className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs text-slate-200">
+                  Logo de liga para carnet (opcional)
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="mt-1 block w-full"
+                    onChange={async (event) => {
+                      const file = event.target.files?.[0]
+                      if (!file) return
+                      setDigitalCardLeagueLogoOverrideDataUrl(await toDataUrl(file))
+                      event.currentTarget.value = ''
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setDigitalCardLeagueLogoOverrideDataUrl('')}
+                  className="rounded border border-white/20 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200"
+                >
+                  Restaurar logo oficial de liga
+                </button>
+              </div>
+
               <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
                 <button
                   type="button"
@@ -2930,7 +2971,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                 <div className="mt-4 overflow-x-auto pb-2">
                   <div
                     ref={digitalCardRef}
-                    className="relative h-[260px] w-[460px] overflow-hidden rounded-2xl border border-white/25 p-4 shadow-2xl"
+                    className="relative z-0 isolate h-[260px] w-[460px] overflow-hidden rounded-2xl border border-white/25 p-4 shadow-2xl"
                     style={{
                       backgroundImage: `linear-gradient(160deg, ${toRgba(digitalCardThemeColor, 0.98)} 0%, ${toRgba(
                         digitalCardThemeColor,
@@ -2980,7 +3021,17 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                           <p className="truncate text-xl font-black leading-tight">{digitalCardPlayer.name}</p>
                           <p className="mt-1 text-lg font-bold">Dorsal #{digitalCardPlayer.number}</p>
                           <div className="mt-1.5 flex items-center gap-2">
-                            <TeamLogo logoUrl={digitalCardTeamLogoSrc || undefined} name={digitalCardTeam.name} sizeClass="h-8 w-8" />
+                            {digitalCardTeamLogoSrc ? (
+                              <img
+                                src={digitalCardTeamLogoSrc}
+                                alt={digitalCardTeam.name}
+                                crossOrigin="anonymous"
+                                referrerPolicy="no-referrer"
+                                className="h-8 w-8 rounded border border-white/50 bg-white object-contain p-0.5"
+                              />
+                            ) : (
+                              <div className="flex h-8 w-8 items-center justify-center rounded border border-white/50 bg-white/20 text-[10px] font-bold">EQ</div>
+                            )}
                             <p className="truncate text-[14px] font-semibold">{digitalCardTeam.name}</p>
                           </div>
                         </div>
