@@ -274,6 +274,9 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const socialCardRef = useRef<HTMLDivElement | null>(null)
   const roundAwardsCardRef = useRef<HTMLDivElement | null>(null)
   const digitalCardRef = useRef<HTMLDivElement | null>(null)
+  const qrVideoRef = useRef<HTMLVideoElement | null>(null)
+  const qrScanIntervalRef = useRef<number | null>(null)
+  const qrVideoStreamRef = useRef<MediaStream | null>(null)
   const [tab, setTab] = useState<AdminTab>('ligas')
   const [teams, setTeams] = useState<RegisteredTeam[]>([])
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
@@ -345,6 +348,10 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [digitalCardTeamLogoDataUrl, setDigitalCardTeamLogoDataUrl] = useState('')
   const [digitalCardPlayerPhotoDataUrl, setDigitalCardPlayerPhotoDataUrl] = useState('')
   const [digitalCardQrDataUrl, setDigitalCardQrDataUrl] = useState('')
+  const [qrManualInput, setQrManualInput] = useState('')
+  const [qrValidationState, setQrValidationState] = useState<{ ok: boolean; title: string; details: string[] } | null>(null)
+  const [isQrScanning, setIsQrScanning] = useState(false)
+  const [qrScanError, setQrScanError] = useState('')
 
   const [videoFormByMatch, setVideoFormByMatch] = useState<Record<string, { file: File | null; name: string; url: string; mode: 'file' | 'url' }>>({})
   const [videoUploadingByMatch, setVideoUploadingByMatch] = useState<Record<string, boolean>>({})
@@ -779,6 +786,9 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? '')
     .join('')
+  const digitalCardLeagueLogoSrc = digitalCardLeagueLogoDataUrl || selectedLeague?.logoUrl || ''
+  const digitalCardTeamLogoSrc = digitalCardTeamLogoDataUrl || digitalCardTeam?.logoUrl || ''
+  const digitalCardPlayerPhotoSrc = digitalCardPlayerPhotoDataUrl || digitalCardPlayer?.photoUrl || ''
 
   const validationPayload = useMemo(() => {
     if (!selectedLeague || !digitalCardTeam || !digitalCardPlayer) return ''
@@ -851,6 +861,196 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       mounted = false
     }
   }, [digitalCardPlayer?.photoUrl, digitalCardTeam?.logoUrl, selectedLeague?.logoUrl])
+
+  const stopQrScanner = useCallback(() => {
+    if (qrScanIntervalRef.current !== null) {
+      window.clearInterval(qrScanIntervalRef.current)
+      qrScanIntervalRef.current = null
+    }
+
+    if (qrVideoStreamRef.current) {
+      qrVideoStreamRef.current.getTracks().forEach((track) => track.stop())
+      qrVideoStreamRef.current = null
+    }
+
+    if (qrVideoRef.current) {
+      qrVideoRef.current.srcObject = null
+    }
+
+    setIsQrScanning(false)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      stopQrScanner()
+    }
+  }, [stopQrScanner])
+
+  const validateQrPayload = useCallback((raw: string) => {
+    const trimmed = raw.trim()
+    if (!trimmed) {
+      setQrValidationState({ ok: false, title: 'QR inválido', details: ['No se recibió contenido para validar.'] })
+      return
+    }
+
+    let payload: {
+      leagueId?: string
+      leagueName?: string
+      season?: number
+      categoryId?: string
+      categoryName?: string
+      teamId?: string
+      teamName?: string
+      playerId?: string
+      playerName?: string
+      number?: number
+      type?: string
+    }
+
+    try {
+      payload = JSON.parse(trimmed)
+    } catch {
+      setQrValidationState({ ok: false, title: 'QR inválido', details: ['El contenido no tiene formato JSON válido.'] })
+      return
+    }
+
+    const issues: string[] = []
+
+    if (payload.type !== 'FL_LIGA_PLAYER_CARD') {
+      issues.push('Tipo de carnet no reconocido.')
+    }
+
+    if (!selectedLeague) {
+      issues.push('No hay liga seleccionada en la gestión para comparar.')
+    } else {
+      if (payload.leagueId !== selectedLeague.id) {
+        issues.push(`Liga distinta: QR ${payload.leagueName ?? payload.leagueId ?? 'N/D'} vs panel ${selectedLeague.name}.`)
+      }
+
+      if (payload.season !== selectedLeague.season) {
+        issues.push(`Temporada distinta: QR ${payload.season ?? 'N/D'} vs panel ${selectedLeague.season}.`)
+      }
+    }
+
+    const categoryMatch = categoryOptions.find((category) => category.id === payload.categoryId)
+    if (!categoryMatch) {
+      issues.push('Categoría del QR no coincide con la categoría activa en el panel.')
+    }
+
+    const team = payload.teamId ? teamMap.get(payload.teamId) : undefined
+    if (!team) {
+      issues.push('Equipo del QR no está registrado en la categoría activa.')
+    }
+
+    const player = team?.players.find((item) => item.id === payload.playerId)
+    if (!player) {
+      issues.push('Jugadora del QR no pertenece al equipo/categoría activa.')
+    } else {
+      if (payload.playerName && normalizeLabel(payload.playerName) !== normalizeLabel(player.name)) {
+        issues.push('Nombre de jugadora no coincide con el registro actual.')
+      }
+
+      if (typeof payload.number === 'number' && payload.number !== player.number) {
+        issues.push(`Dorsal no coincide: QR #${payload.number} vs registro #${player.number}.`)
+      }
+    }
+
+    if (issues.length > 0) {
+      setQrValidationState({
+        ok: false,
+        title: 'Registro observado',
+        details: issues,
+      })
+      return
+    }
+
+    setQrValidationState({
+      ok: true,
+      title: 'Registro OK',
+      details: [
+        `${player?.name ?? payload.playerName ?? 'Jugadora'} validada en ${team?.name ?? payload.teamName ?? 'equipo'}.`,
+        `Categoría: ${categoryMatch?.name ?? payload.categoryName ?? 'N/D'}.`,
+      ],
+    })
+  }, [categoryOptions, selectedLeague, teamMap])
+
+  const startQrScanner = async () => {
+    setQrScanError('')
+    setQrValidationState(null)
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setQrScanError('Este navegador no permite acceso a cámara. Usa validación por imagen o texto QR.')
+      return
+    }
+
+    const BarcodeDetectorCtor = (window as { BarcodeDetector?: new (options?: { formats?: string[] }) => { detect: (input: ImageBitmap | HTMLVideoElement) => Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector
+    if (!BarcodeDetectorCtor) {
+      setQrScanError('Tu navegador no soporta lectura QR por cámara en web. Usa validación por imagen o texto QR.')
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false,
+      })
+
+      qrVideoStreamRef.current = stream
+      if (qrVideoRef.current) {
+        qrVideoRef.current.srcObject = stream
+        await qrVideoRef.current.play()
+      }
+
+      const detector = new BarcodeDetectorCtor({ formats: ['qr_code'] })
+      setIsQrScanning(true)
+
+      qrScanIntervalRef.current = window.setInterval(async () => {
+        if (!qrVideoRef.current) return
+        try {
+          const codes = await detector.detect(qrVideoRef.current)
+          const rawValue = codes[0]?.rawValue
+          if (rawValue) {
+            setQrManualInput(rawValue)
+            validateQrPayload(rawValue)
+            stopQrScanner()
+          }
+        } catch {
+          // Ignorar detecciones intermedias fallidas
+        }
+      }, 450)
+    } catch {
+      setQrScanError('No se pudo iniciar la cámara para escanear QR.')
+      stopQrScanner()
+    }
+  }
+
+  const validateQrFromImageFile = async (file: File) => {
+    setQrScanError('')
+
+    const BarcodeDetectorCtor = (window as { BarcodeDetector?: new (options?: { formats?: string[] }) => { detect: (input: ImageBitmap | HTMLVideoElement) => Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector
+    if (!BarcodeDetectorCtor) {
+      setQrScanError('Tu navegador no soporta lectura QR por imagen. Usa validación por texto QR.')
+      return
+    }
+
+    try {
+      const bitmap = await createImageBitmap(file)
+      const detector = new BarcodeDetectorCtor({ formats: ['qr_code'] })
+      const codes = await detector.detect(bitmap)
+      const rawValue = codes[0]?.rawValue
+      bitmap.close()
+
+      if (!rawValue) {
+        setQrValidationState({ ok: false, title: 'QR no detectado', details: ['No se detectó un código QR en la imagen cargada.'] })
+        return
+      }
+
+      setQrManualInput(rawValue)
+      validateQrPayload(rawValue)
+    } catch {
+      setQrScanError('No se pudo procesar la imagen para validar QR.')
+    }
+  }
 
   useEffect(() => {
     if (!selectedTeam) return
@@ -2744,10 +2944,12 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     <div className="relative z-10 flex h-full flex-col justify-between gap-3">
                       <div className="rounded-lg border border-white/20 bg-black/15 p-2.5">
                         <div className="flex items-center gap-2.5">
-                          {digitalCardLeagueLogoDataUrl ? (
+                          {digitalCardLeagueLogoSrc ? (
                             <img
-                              src={digitalCardLeagueLogoDataUrl}
+                              src={digitalCardLeagueLogoSrc}
                               alt={selectedLeague.name}
+                              crossOrigin="anonymous"
+                              referrerPolicy="no-referrer"
                               className="h-11 w-11 rounded-full border border-white/40 bg-white object-contain p-1"
                             />
                           ) : (
@@ -2761,10 +2963,12 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                       </div>
 
                       <div className="grid grid-cols-[auto_1fr] items-center gap-3">
-                        {digitalCardPlayerPhotoDataUrl ? (
+                        {digitalCardPlayerPhotoSrc ? (
                           <img
-                            src={digitalCardPlayerPhotoDataUrl}
+                            src={digitalCardPlayerPhotoSrc}
                             alt={digitalCardPlayer.name}
+                            crossOrigin="anonymous"
+                            referrerPolicy="no-referrer"
                             className="h-28 w-28 rounded-xl border-2 border-white/70 bg-slate-900 object-cover"
                           />
                         ) : (
@@ -2776,7 +2980,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                           <p className="truncate text-xl font-black leading-tight">{digitalCardPlayer.name}</p>
                           <p className="mt-1 text-lg font-bold">Dorsal #{digitalCardPlayer.number}</p>
                           <div className="mt-1.5 flex items-center gap-2">
-                            <TeamLogo logoUrl={digitalCardTeamLogoDataUrl || undefined} name={digitalCardTeam.name} sizeClass="h-8 w-8" />
+                            <TeamLogo logoUrl={digitalCardTeamLogoSrc || undefined} name={digitalCardTeam.name} sizeClass="h-8 w-8" />
                             <p className="truncate text-[14px] font-semibold">{digitalCardTeam.name}</p>
                           </div>
                         </div>
@@ -2800,6 +3004,81 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   </div>
                 </div>
               )}
+
+              <div className="mt-4 rounded-xl border border-white/15 bg-slate-950/60 p-3">
+                <p className="text-sm font-semibold text-white">Verificación de carnet por QR</p>
+                <p className="mt-1 text-xs text-slate-300">
+                  En celular puedes usar cámara. En computadora puedes cargar imagen del QR o pegar el texto del QR.
+                </p>
+
+                <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+                  <button
+                    type="button"
+                    onClick={() => void startQrScanner()}
+                    disabled={isQrScanning}
+                    className="rounded border border-cyan-300/40 bg-cyan-500/20 px-3 py-2 text-xs font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isQrScanning ? 'Escaneando...' : 'Escanear con cámara'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => stopQrScanner()}
+                    disabled={!isQrScanning}
+                    className="rounded border border-rose-300/40 bg-rose-500/20 px-3 py-2 text-xs font-semibold text-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Detener cámara
+                  </button>
+                  <label className="rounded border border-white/20 bg-slate-900 px-3 py-2 text-xs text-slate-200">
+                    Validar desde imagen
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="mt-1 block w-full"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0]
+                        if (!file) return
+                        void validateQrFromImageFile(file)
+                        event.currentTarget.value = ''
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {isQrScanning && (
+                  <div className="mt-3 max-w-sm overflow-hidden rounded-lg border border-white/20 bg-black">
+                    <video ref={qrVideoRef} className="h-56 w-full object-cover" muted playsInline />
+                  </div>
+                )}
+
+                <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto]">
+                  <textarea
+                    value={qrManualInput}
+                    onChange={(event) => setQrManualInput(event.target.value)}
+                    placeholder="Pega aquí el contenido del QR (JSON del carnet)"
+                    className="min-h-24 rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => validateQrPayload(qrManualInput)}
+                    className="rounded border border-emerald-300/40 bg-emerald-500/20 px-3 py-2 text-xs font-semibold text-emerald-100"
+                  >
+                    Validar texto QR
+                  </button>
+                </div>
+
+                {qrScanError && <p className="mt-2 text-xs text-amber-200">{qrScanError}</p>}
+
+                {qrValidationState && (
+                  <div className={`mt-3 rounded border px-3 py-2 text-xs ${qrValidationState.ok ? 'border-emerald-300/40 bg-emerald-500/10 text-emerald-100' : 'border-rose-300/40 bg-rose-500/10 text-rose-100'}`}>
+                    <p className="font-semibold">{qrValidationState.title}</p>
+                    <ul className="mt-1 list-disc space-y-1 pl-4">
+                      {qrValidationState.details.map((detail, index) => (
+                        <li key={`qr-validation-${index}`}>{detail}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
             </>
           )}
         </div>
