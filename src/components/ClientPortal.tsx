@@ -163,6 +163,8 @@ const parseManualMatchId = (matchId: string, round: number) => {
   return null
 }
 
+const buildRoundTeamsKey = (round: number, homeTeamId: string, awayTeamId: string) => `${round}:${homeTeamId}:${awayTeamId}`
+
 const normalizeLabel = (value: string) =>
   value
     .trim()
@@ -905,6 +907,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     const generatedByRound = new Map<number, ScheduledMatch[]>()
     const scheduleByRound = new Map<number, ScheduledMatch[]>()
     const generatedMap = new Map<string, ScheduledMatch>()
+    const scheduledPairKeys = new Set<string>()
 
     fixturePayload.fixture.rounds.forEach((round) => {
       const roundItems: ScheduledMatch[] = []
@@ -930,6 +933,10 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
         const generated = generatedMap.get(entry.matchId)
         if (!generated) return
 
+        const pairKey = buildRoundTeamsKey(entry.round, generated.homeTeamId, generated.awayTeamId)
+        if (scheduledPairKeys.has(pairKey)) return
+        scheduledPairKeys.add(pairKey)
+
         const roundItems = scheduleByRound.get(entry.round) ?? []
         roundItems.push({
           ...generated,
@@ -944,6 +951,10 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
 
       const manual = parseManualMatchId(entry.matchId, entry.round)
       if (!manual) return
+
+      const pairKey = buildRoundTeamsKey(entry.round, manual.homeTeamId, manual.awayTeamId)
+      if (scheduledPairKeys.has(pairKey)) return
+      scheduledPairKeys.add(pairKey)
 
       const roundItems = scheduleByRound.get(entry.round) ?? []
       roundItems.push({
