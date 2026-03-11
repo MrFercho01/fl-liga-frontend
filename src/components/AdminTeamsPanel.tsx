@@ -144,6 +144,37 @@ const normalizeLabel = (value: string) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
 
+const normalizeHexColor = (value?: string) => {
+  if (!value) return '#0f172a'
+  const raw = value.trim()
+  if (/^#[0-9a-f]{6}$/i.test(raw)) return raw
+  if (/^#[0-9a-f]{3}$/i.test(raw)) {
+    return `#${raw[1]}${raw[1]}${raw[2]}${raw[2]}${raw[3]}${raw[3]}`
+  }
+  return '#0f172a'
+}
+
+const hexToRgb = (hex: string) => {
+  const normalized = normalizeHexColor(hex)
+  const parsed = Number.parseInt(normalized.slice(1), 16)
+  return {
+    r: (parsed >> 16) & 255,
+    g: (parsed >> 8) & 255,
+    b: parsed & 255,
+  }
+}
+
+const toRgba = (hex: string, alpha: number) => {
+  const { r, g, b } = hexToRgb(hex)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+const getContrastTextColor = (hex: string) => {
+  const { r, g, b } = hexToRgb(hex)
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+  return luminance > 0.58 ? '#0f172a' : '#f8fafc'
+}
+
 const createManualMatchId = (round: number, homeTeamId: string, awayTeamId: string) =>
   `manual__${round}__${homeTeamId}__${awayTeamId}`
 
@@ -220,6 +251,7 @@ const TeamLogo = ({
 export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLeagueSelect }: AdminTeamsPanelProps) => {
   const socialCardRef = useRef<HTMLDivElement | null>(null)
   const roundAwardsCardRef = useRef<HTMLDivElement | null>(null)
+  const digitalCardRef = useRef<HTMLDivElement | null>(null)
   const [tab, setTab] = useState<AdminTab>('ligas')
   const [teams, setTeams] = useState<RegisteredTeam[]>([])
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
@@ -284,6 +316,8 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [playerSearch, setPlayerSearch] = useState('')
   const [playerPositionFilter, setPlayerPositionFilter] = useState<'TODAS' | 'POR' | 'DEF' | 'MED' | 'DEL'>('TODAS')
   const [playerPage, setPlayerPage] = useState(1)
+  const [digitalCardTeamId, setDigitalCardTeamId] = useState('')
+  const [digitalCardPlayerId, setDigitalCardPlayerId] = useState('')
 
   const [videoFormByMatch, setVideoFormByMatch] = useState<Record<string, { file: File | null; name: string; url: string; mode: 'file' | 'url' }>>({})
   const [videoUploadingByMatch, setVideoUploadingByMatch] = useState<Record<string, boolean>>({})
@@ -688,6 +722,76 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const leaguePagination = paginate(filteredLeagues, leaguePage, 6)
   const teamPagination = paginate(filteredTeams, teamPage, 6)
   const playerPagination = paginate(filteredPlayers, playerPage, 8)
+
+  const digitalCardTeam = useMemo(() => {
+    if (digitalCardTeamId) {
+      return teams.find((team) => team.id === digitalCardTeamId) ?? selectedTeam ?? null
+    }
+
+    return selectedTeam ?? teams[0] ?? null
+  }, [digitalCardTeamId, selectedTeam, teams])
+
+  const digitalCardPlayer = useMemo(() => {
+    if (!digitalCardTeam) return null
+
+    if (digitalCardPlayerId) {
+      return digitalCardTeam.players.find((player) => player.id === digitalCardPlayerId) ?? digitalCardTeam.players[0] ?? null
+    }
+
+    return digitalCardTeam.players[0] ?? null
+  }, [digitalCardPlayerId, digitalCardTeam])
+
+  const activeCategoryName =
+    categoryOptions.find((category) => category.id === activeCategoryId)?.name ?? 'Categoría'
+
+  const digitalCardThemeColor = normalizeHexColor(selectedLeague?.themeColor)
+  const digitalCardTextColor = getContrastTextColor(digitalCardThemeColor)
+
+  const validationPayload = useMemo(() => {
+    if (!selectedLeague || !digitalCardTeam || !digitalCardPlayer) return ''
+
+    return JSON.stringify({
+      type: 'FL_LIGA_PLAYER_CARD',
+      leagueId: selectedLeague.id,
+      leagueName: selectedLeague.name,
+      season: selectedLeague.season,
+      categoryId: activeCategoryId,
+      categoryName: activeCategoryName,
+      teamId: digitalCardTeam.id,
+      teamName: digitalCardTeam.name,
+      playerId: digitalCardPlayer.id,
+      playerName: digitalCardPlayer.name,
+      number: digitalCardPlayer.number,
+    })
+  }, [activeCategoryId, activeCategoryName, digitalCardPlayer, digitalCardTeam, selectedLeague])
+
+  const digitalCardQrUrl = useMemo(() => {
+    if (!validationPayload) return ''
+    return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(validationPayload)}`
+  }, [validationPayload])
+
+  useEffect(() => {
+    if (!selectedTeam) return
+
+    setDigitalCardTeamId((current) => {
+      if (current) return current
+      return selectedTeam.id
+    })
+  }, [selectedTeam])
+
+  useEffect(() => {
+    if (!digitalCardTeam) {
+      setDigitalCardPlayerId('')
+      return
+    }
+
+    setDigitalCardPlayerId((current) => {
+      if (current && digitalCardTeam.players.some((player) => player.id === current)) {
+        return current
+      }
+      return digitalCardTeam.players[0]?.id ?? ''
+    })
+  }, [digitalCardTeam])
 
   const addDraftMatchToRound = () => {
     if (!activeFixtureRound) return
@@ -1284,6 +1388,72 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
     const text = encodeURIComponent(lines.join('\n'))
     window.open(`https://wa.me/?text=${text}`, '_blank', 'noopener,noreferrer')
+  }
+
+  const buildDigitalCardFileName = () => {
+    const leagueSlug = (selectedLeague?.name ?? 'liga').replace(/\s+/g, '-').toLowerCase()
+    const teamSlug = (digitalCardTeam?.name ?? 'equipo').replace(/\s+/g, '-').toLowerCase()
+    const playerSlug = (digitalCardPlayer?.name ?? 'jugador').replace(/\s+/g, '-').toLowerCase()
+    return `${leagueSlug}-${teamSlug}-${playerSlug}-carnet.png`
+  }
+
+  const downloadDigitalCardPng = async () => {
+    if (!digitalCardRef.current || !digitalCardPlayer || !digitalCardTeam || !selectedLeague) {
+      showMessage('Selecciona equipo y jugador para generar el carnet')
+      return
+    }
+
+    try {
+      const dataUrl = await toPng(digitalCardRef.current, {
+        cacheBust: true,
+        pixelRatio: 3,
+      })
+
+      const link = document.createElement('a')
+      link.download = buildDigitalCardFileName()
+      link.href = dataUrl
+      link.click()
+    } catch {
+      showMessage('No se pudo descargar el carnet digital')
+    }
+  }
+
+  const shareDigitalCardByWhatsapp = async () => {
+    if (!digitalCardRef.current || !digitalCardPlayer || !digitalCardTeam || !selectedLeague) {
+      showMessage('Selecciona equipo y jugador para compartir el carnet')
+      return
+    }
+
+    try {
+      const dataUrl = await toPng(digitalCardRef.current, {
+        cacheBust: true,
+        pixelRatio: 3,
+      })
+
+      const response = await fetch(dataUrl)
+      const blob = await response.blob()
+      const fileName = buildDigitalCardFileName()
+      const file = new File([blob], fileName, { type: 'image/png' })
+
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: `Carnet digital · ${digitalCardPlayer.name}`,
+            text: `${selectedLeague.name} · ${digitalCardTeam.name}`,
+          })
+          return
+        }
+      }
+
+      const shareText = encodeURIComponent(
+        `Carnet digital: ${digitalCardPlayer.name} · #${digitalCardPlayer.number} · ${digitalCardTeam.name}`,
+      )
+      window.open(`https://wa.me/?text=${shareText}`, '_blank', 'noopener,noreferrer')
+      showMessage('WhatsApp Web no admite adjuntar imagen directo en este navegador. Usa Descargar imagen y luego adjúntala en WhatsApp.')
+    } catch {
+      showMessage('No se pudo compartir el carnet digital')
+    }
   }
 
   const handleAddPlayer = async (teamId: string) => {
@@ -2135,6 +2305,144 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   >
                     {(playerReplacementByTeam[selectedTeam.id]?.enabled ?? false) ? 'Reemplazar jugadora' : 'Agregar jugador'}
                   </button>
+
+                  <div className="mt-4 rounded-xl border border-white/15 bg-slate-950/60 p-3">
+                    <p className="text-sm font-semibold text-white">Carnet digital de jugadoras</p>
+                    <p className="mt-1 text-xs text-slate-300">
+                      Genera por equipo y jugadora. Incluye datos de liga, categoría, dorsal y QR para validación de registro.
+                    </p>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+                      <select
+                        value={digitalCardTeam?.id ?? ''}
+                        onChange={(event) => {
+                          setDigitalCardTeamId(event.target.value)
+                          setDigitalCardPlayerId('')
+                        }}
+                        className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs text-white"
+                      >
+                        {teams.map((team) => (
+                          <option key={`digital-card-team-${team.id}`} value={team.id}>{team.name}</option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={digitalCardPlayer?.id ?? ''}
+                        onChange={(event) => setDigitalCardPlayerId(event.target.value)}
+                        className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs text-white"
+                      >
+                        {(digitalCardTeam?.players ?? []).map((player) => (
+                          <option key={`digital-card-player-${player.id}`} value={player.id}>
+                            {player.name} · #{player.number}
+                          </option>
+                        ))}
+                      </select>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void downloadDigitalCardPng()}
+                          disabled={!digitalCardPlayer}
+                          className="flex-1 rounded border border-emerald-300/40 bg-emerald-500/20 px-3 py-2 text-xs font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Descargar imagen
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void shareDigitalCardByWhatsapp()}
+                          disabled={!digitalCardPlayer}
+                          className="flex-1 rounded border border-cyan-300/40 bg-cyan-500/20 px-3 py-2 text-xs font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Compartir por WS
+                        </button>
+                      </div>
+                    </div>
+
+                    {!digitalCardTeam || !digitalCardPlayer ? (
+                      <p className="mt-3 text-xs text-slate-400">Selecciona equipo y jugadora para previsualizar el carnet.</p>
+                    ) : (
+                      <div className="mt-4 overflow-x-auto pb-1">
+                        <div
+                          ref={digitalCardRef}
+                          className="relative h-[240px] w-[420px] overflow-hidden rounded-2xl border border-white/25 p-4 shadow-2xl"
+                          style={{
+                            backgroundImage: `linear-gradient(160deg, ${toRgba(digitalCardThemeColor, 0.98)} 0%, ${toRgba(
+                              digitalCardThemeColor,
+                              0.7,
+                            )} 46%, ${toRgba('#020617', 0.95)} 100%)`,
+                            color: digitalCardTextColor,
+                          }}
+                        >
+                          <div className="absolute inset-0 opacity-15" style={{ backgroundImage: 'radial-gradient(circle at 18% 20%, #ffffff 0%, transparent 38%), radial-gradient(circle at 90% 88%, #ffffff 0%, transparent 28%)' }} />
+
+                          <div className="relative z-10 flex h-full flex-col justify-between">
+                            <div className="rounded-lg border border-white/20 bg-black/15 p-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  {selectedLeague.logoUrl ? (
+                                    <img
+                                      src={selectedLeague.logoUrl}
+                                      alt={selectedLeague.name}
+                                      crossOrigin="anonymous"
+                                      referrerPolicy="no-referrer"
+                                      className="h-10 w-10 rounded-full border border-white/40 bg-white object-contain p-1"
+                                    />
+                                  ) : (
+                                    <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/40 bg-white/20 text-[10px] font-bold">FL</div>
+                                  )}
+                                  <div>
+                                    <p className="text-[13px] font-bold leading-tight">CARNET DIGITAL OFICIAL</p>
+                                    <p className="text-[10px] opacity-95">{selectedLeague.name} · Temporada {selectedLeague.season} · {activeCategoryName}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-[auto_1fr] items-center gap-3">
+                              {digitalCardPlayer.photoUrl ? (
+                                <img
+                                  src={digitalCardPlayer.photoUrl}
+                                  alt={digitalCardPlayer.name}
+                                  crossOrigin="anonymous"
+                                  referrerPolicy="no-referrer"
+                                  className="h-24 w-24 rounded-xl border-2 border-white/70 bg-slate-900 object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-24 w-24 items-center justify-center rounded-xl border-2 border-white/70 bg-slate-900/70 text-xs font-semibold">SIN FOTO</div>
+                              )}
+
+                              <div className="min-w-0 rounded-lg border border-white/20 bg-black/20 p-2">
+                                <p className="truncate text-[11px] font-semibold tracking-wide opacity-90">NOMBRES</p>
+                                <p className="truncate text-lg font-black leading-tight">{digitalCardPlayer.name}</p>
+                                <p className="mt-1 text-sm font-bold">Dorsal #{digitalCardPlayer.number}</p>
+                                <div className="mt-1 flex items-center gap-2">
+                                  <TeamLogo logoUrl={digitalCardTeam.logoUrl} name={digitalCardTeam.name} sizeClass="h-7 w-7" />
+                                  <p className="truncate text-[12px] font-semibold">{digitalCardTeam.name}</p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-[92px_1fr] items-end gap-3">
+                              <div className="rounded-md border border-white/40 bg-white p-1 text-slate-900">
+                                {digitalCardQrUrl ? (
+                                  <img
+                                    src={digitalCardQrUrl}
+                                    alt="QR validación"
+                                    crossOrigin="anonymous"
+                                    referrerPolicy="no-referrer"
+                                    className="h-20 w-20"
+                                  />
+                                ) : (
+                                  <div className="flex h-20 w-20 items-center justify-center text-[10px] font-semibold">QR</div>
+                                )}
+                              </div>
+                              <p className="text-[10px] opacity-95">Escanea para validar registro de jugadora en FL Liga.</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
                     {playerPagination.pageItems.map((player) => {
