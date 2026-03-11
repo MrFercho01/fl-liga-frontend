@@ -1,4 +1,5 @@
 import { toPng } from 'html-to-image'
+import JSZip from 'jszip'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiService } from '../services/api'
 import type { FixtureResponse, FixtureScheduleEntry, PlayedMatchRecord, RegisteredTeam, RoundAwardsRankingEntry } from '../types/admin.ts'
@@ -318,6 +319,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [playerPage, setPlayerPage] = useState(1)
   const [digitalCardTeamId, setDigitalCardTeamId] = useState('')
   const [digitalCardPlayerId, setDigitalCardPlayerId] = useState('')
+  const [isGeneratingBulkCards, setIsGeneratingBulkCards] = useState(false)
 
   const [videoFormByMatch, setVideoFormByMatch] = useState<Record<string, { file: File | null; name: string; url: string; mode: 'file' | 'url' }>>({})
   const [videoUploadingByMatch, setVideoUploadingByMatch] = useState<Record<string, boolean>>({})
@@ -1397,6 +1399,24 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     return `${leagueSlug}-${teamSlug}-${playerSlug}-carnet.png`
   }
 
+  const waitForCardRender = async () => {
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+  }
+
+  const generateCurrentCardDataUrl = async () => {
+    if (!digitalCardRef.current) {
+      throw new Error('no-card-ref')
+    }
+
+    await waitForCardRender()
+
+    return toPng(digitalCardRef.current, {
+      cacheBust: true,
+      pixelRatio: 3,
+    })
+  }
+
   const downloadDigitalCardPng = async () => {
     if (!digitalCardRef.current || !digitalCardPlayer || !digitalCardTeam || !selectedLeague) {
       showMessage('Selecciona equipo y jugador para generar el carnet')
@@ -1404,10 +1424,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     }
 
     try {
-      const dataUrl = await toPng(digitalCardRef.current, {
-        cacheBust: true,
-        pixelRatio: 3,
-      })
+      const dataUrl = await generateCurrentCardDataUrl()
 
       const link = document.createElement('a')
       link.download = buildDigitalCardFileName()
@@ -1425,10 +1442,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     }
 
     try {
-      const dataUrl = await toPng(digitalCardRef.current, {
-        cacheBust: true,
-        pixelRatio: 3,
-      })
+      const dataUrl = await generateCurrentCardDataUrl()
 
       const response = await fetch(dataUrl)
       const blob = await response.blob()
@@ -1453,6 +1467,130 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       showMessage('WhatsApp Web no admite adjuntar imagen directo en este navegador. Usa Descargar imagen y luego adjúntala en WhatsApp.')
     } catch {
       showMessage('No se pudo compartir el carnet digital')
+    }
+  }
+
+  const downloadTeamCardsZip = async () => {
+    if (!selectedLeague || !digitalCardTeam || digitalCardTeam.players.length === 0) {
+      showMessage('Selecciona un equipo con jugadoras para exportar carnets')
+      return
+    }
+
+    if (!digitalCardRef.current) {
+      showMessage('No se pudo preparar la vista del carnet para exportación masiva')
+      return
+    }
+
+    const previousTeamId = digitalCardTeamId
+    const previousPlayerId = digitalCardPlayerId
+    const targetTeam = digitalCardTeam
+
+    setIsGeneratingBulkCards(true)
+
+    try {
+      setDigitalCardTeamId(targetTeam.id)
+      await waitForCardRender()
+
+      const zip = new JSZip()
+      const teamFolder = zip.folder(targetTeam.name.replace(/[\\/:*?"<>|]/g, '-').trim() || 'equipo')
+      if (!teamFolder) {
+        showMessage('No se pudo crear carpeta para el ZIP')
+        return
+      }
+
+      for (const player of targetTeam.players) {
+        setDigitalCardPlayerId(player.id)
+        const dataUrl = await generateCurrentCardDataUrl()
+        const base64Data = dataUrl.split(',')[1]
+        const safePlayerName = player.name.replace(/[\\/:*?"<>|]/g, '-').trim() || 'jugadora'
+        const fileName = `${safePlayerName}-#${player.number}.png`
+        teamFolder.file(fileName, base64Data, { base64: true })
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' })
+      const leagueSlug = (selectedLeague.name || 'liga').replace(/\s+/g, '-').toLowerCase()
+      const teamSlug = (targetTeam.name || 'equipo').replace(/\s+/g, '-').toLowerCase()
+      const fileName = `${leagueSlug}-${teamSlug}-carnets.zip`
+      const downloadUrl = URL.createObjectURL(zipBlob)
+
+      const link = document.createElement('a')
+      link.href = downloadUrl
+      link.download = fileName
+      link.click()
+      URL.revokeObjectURL(downloadUrl)
+
+      showMessage(`Carnets masivos generados: ${targetTeam.players.length} jugadoras`) 
+    } catch {
+      showMessage('No se pudo generar el ZIP masivo de carnets')
+    } finally {
+      setDigitalCardTeamId(previousTeamId)
+      setDigitalCardPlayerId(previousPlayerId)
+      setIsGeneratingBulkCards(false)
+    }
+  }
+
+  const downloadCategoryCardsZip = async () => {
+    if (!selectedLeague || teams.length === 0) {
+      showMessage('No hay equipos para exportar en esta categoría')
+      return
+    }
+
+    if (!digitalCardRef.current) {
+      showMessage('No se pudo preparar la vista del carnet para exportación masiva')
+      return
+    }
+
+    const teamsWithPlayers = teams.filter((team) => team.players.length > 0)
+    if (teamsWithPlayers.length === 0) {
+      showMessage('No hay jugadoras registradas para generar carnets masivos')
+      return
+    }
+
+    const previousTeamId = digitalCardTeamId
+    const previousPlayerId = digitalCardPlayerId
+
+    setIsGeneratingBulkCards(true)
+
+    try {
+      const zip = new JSZip()
+      let exportedCards = 0
+
+      for (const team of teamsWithPlayers) {
+        setDigitalCardTeamId(team.id)
+        await waitForCardRender()
+        const teamFolder = zip.folder(team.name.replace(/[\\/:*?"<>|]/g, '-').trim() || 'equipo')
+        if (!teamFolder) continue
+
+        for (const player of team.players) {
+          setDigitalCardPlayerId(player.id)
+          const dataUrl = await generateCurrentCardDataUrl()
+          const base64Data = dataUrl.split(',')[1]
+          const safePlayerName = player.name.replace(/[\\/:*?"<>|]/g, '-').trim() || 'jugadora'
+          const fileName = `${safePlayerName}-#${player.number}.png`
+          teamFolder.file(fileName, base64Data, { base64: true })
+          exportedCards += 1
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' })
+      const leagueSlug = (selectedLeague.name || 'liga').replace(/\s+/g, '-').toLowerCase()
+      const categorySlug = (activeCategoryName || 'categoria').replace(/\s+/g, '-').toLowerCase()
+      const fileName = `${leagueSlug}-${categorySlug}-carnets.zip`
+      const downloadUrl = URL.createObjectURL(zipBlob)
+
+      const link = document.createElement('a')
+      link.href = downloadUrl
+      link.download = fileName
+      link.click()
+      URL.revokeObjectURL(downloadUrl)
+
+      showMessage(`Carnets masivos generados: ${exportedCards} jugadoras`) 
+    } catch {
+      showMessage('No se pudo generar el ZIP masivo por categoría')
+    } finally {
+      setDigitalCardTeamId(previousTeamId)
+      setDigitalCardPlayerId(previousPlayerId)
+      setIsGeneratingBulkCards(false)
     }
   }
 
@@ -2342,7 +2480,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                         <button
                           type="button"
                           onClick={() => void downloadDigitalCardPng()}
-                          disabled={!digitalCardPlayer}
+                          disabled={!digitalCardPlayer || isGeneratingBulkCards}
                           className="flex-1 rounded border border-emerald-300/40 bg-emerald-500/20 px-3 py-2 text-xs font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           Descargar imagen
@@ -2350,13 +2488,36 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                         <button
                           type="button"
                           onClick={() => void shareDigitalCardByWhatsapp()}
-                          disabled={!digitalCardPlayer}
+                          disabled={!digitalCardPlayer || isGeneratingBulkCards}
                           className="flex-1 rounded border border-cyan-300/40 bg-cyan-500/20 px-3 py-2 text-xs font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           Compartir por WS
                         </button>
                       </div>
                     </div>
+
+                    <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => void downloadTeamCardsZip()}
+                        disabled={!digitalCardTeam || isGeneratingBulkCards}
+                        className="rounded border border-violet-300/40 bg-violet-500/20 px-3 py-2 text-xs font-semibold text-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isGeneratingBulkCards ? 'Generando ZIP...' : 'Descargar ZIP del equipo'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void downloadCategoryCardsZip()}
+                        disabled={teams.length === 0 || isGeneratingBulkCards}
+                        className="rounded border border-amber-300/40 bg-amber-500/20 px-3 py-2 text-xs font-semibold text-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isGeneratingBulkCards ? 'Generando ZIP...' : 'Descargar ZIP de categoría'}
+                      </button>
+                    </div>
+
+                    <p className="mt-2 text-[11px] text-slate-400">
+                      Regeneración automática: si editas foto, dorsal o nombre de una jugadora, al volver a generar el carnet individual o masivo saldrá con datos actualizados.
+                    </p>
 
                     {!digitalCardTeam || !digitalCardPlayer ? (
                       <p className="mt-3 text-xs text-slate-400">Selecciona equipo y jugadora para previsualizar el carnet.</p>
