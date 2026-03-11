@@ -767,11 +767,6 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       showMessage('No hay partidos en borrador para guardar')
       return
     }
-    if (roundCompletedMatchesCount > 0) {
-      showMessage('No se puede editar esta fecha porque ya tiene partidos jugados')
-      return
-    }
-
     const fixtureMatchByPair = new Map<string, { id: string }>()
     fixtureMatchesByRound.forEach((match) => {
       fixtureMatchByPair.set(`${match.homeTeamId}:${match.awayTeamId}`, { id: match.id })
@@ -814,9 +809,15 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       const existingRoundEntries = fixtureScheduleEntries.filter(
         (entry) => entry.round === activeFixtureRound && entry.categoryId === activeCategoryId,
       )
+      const playedRoundMatchIds = new Set(
+        playedMatchesRecords
+          .filter((record) => record.round === activeFixtureRound && record.categoryId === activeCategoryId)
+          .map((record) => record.matchId),
+      )
 
       for (const entry of existingRoundEntries) {
         if (savedMatchIds.has(entry.matchId)) continue
+        if (playedRoundMatchIds.has(entry.matchId)) continue
 
         const deleteResponse = await apiService.deleteFixtureSchedule(selectedLeague.id, entry.matchId, activeCategoryId)
         if (!deleteResponse.ok) {
@@ -841,10 +842,6 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     if (!activeFixtureRound) return
     if (scheduledRoundMatches.length === 0) {
       showMessage('No hay partidos guardados para editar en esta fecha')
-      return
-    }
-    if (roundCompletedMatchesCount > 0) {
-      showMessage('No se puede editar esta fecha porque ya tiene partidos jugados')
       return
     }
 
@@ -2362,14 +2359,14 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     <p className="text-xs font-semibold text-white">Lista de cruces en borrador (editar o eliminar antes de guardar)</p>
                     <button
                       type="button"
-                      disabled={isReadOnlySeason || !hasPublishedRoundMatches || roundCompletedMatchesCount > 0}
+                      disabled={isReadOnlySeason || !hasPublishedRoundMatches}
                       onClick={editPublishedRoundMatches}
                       className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-1 text-[11px] font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Editar fixture guardado
                     </button>
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-400">Agrega partidos, modifica local/visitante/hora y al final guarda la fecha completa.</p>
+                  <p className="mt-1 text-[11px] text-slate-400">Agrega partidos, modifica local/visitante/hora y al final guarda la fecha completa. Los partidos ya jugados se conservan y no se eliminan automáticamente.</p>
 
                   <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto]">
                       <select
