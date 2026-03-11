@@ -158,6 +158,7 @@ export interface FixtureScheduleEntry {
   round: number
   scheduledAt: string
   venue?: string
+  status?: 'scheduled' | 'postponed'
 }
 
 export interface RoundMatchBestPlayer {

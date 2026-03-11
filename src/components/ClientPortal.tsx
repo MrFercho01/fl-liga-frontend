@@ -66,7 +66,7 @@ interface PublicFixturePayload {
       }>
     }>
   }
-  schedule: FixtureScheduleEntry[]
+  schedule: Array<FixtureScheduleEntry & { status?: 'scheduled' | 'postponed' }>
   playedMatchIds: string[]
   playedMatches: Array<{
     matchId: string
@@ -127,6 +127,7 @@ interface ScheduledMatch {
   awayTeamId: string
   scheduledAt?: string
   venue?: string
+  status?: 'scheduled' | 'postponed'
   played: boolean
 }
 
@@ -168,6 +169,9 @@ const normalizeLabel = (value: string) =>
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\bbanco\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 
 const parseFormationLines = (formationKey?: string) => {
   if (!formationKey) return null
@@ -931,6 +935,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
           ...generated,
           ...(entry.scheduledAt ? { scheduledAt: entry.scheduledAt } : {}),
           ...(entry.venue ? { venue: entry.venue } : {}),
+          ...(entry.status ? { status: entry.status } : {}),
           played: fixturePayload.playedMatchIds.includes(entry.matchId),
         })
         scheduleByRound.set(entry.round, roundItems)
@@ -948,6 +953,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
         awayTeamId: manual.awayTeamId,
         scheduledAt: entry.scheduledAt,
         ...(entry.venue ? { venue: entry.venue } : {}),
+        ...(entry.status ? { status: entry.status } : {}),
         played: fixturePayload.playedMatchIds.includes(entry.matchId),
       })
       scheduleByRound.set(entry.round, roundItems)
@@ -2504,14 +2510,17 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                         (event) => (event.type === 'red' || event.type === 'double_yellow' || event.type === 'staff_red') && normalizeLabel(event.teamName) === normalizedAwayName,
                       ).length
 
-                      const statusLabel = isLive ? 'En juego' : isBreak ? 'Descanso' : isFinished ? 'Finalizado' : 'Por jugar'
+                      const isPostponed = !isLive && !isBreak && !isFinished && match.status === 'postponed'
+                      const statusLabel = isLive ? 'En juego' : isBreak ? 'Descanso' : isFinished ? 'Finalizado' : isPostponed ? 'Postergado' : 'Por jugar'
                       const statusClassName = isLive
                         ? 'border-rose-300/50 bg-rose-500/20 text-rose-100'
                         : isBreak
                           ? 'border-amber-300/50 bg-amber-500/20 text-amber-100'
                         : isFinished
                           ? 'border-emerald-300/40 bg-emerald-500/20 text-emerald-100'
-                          : 'border-cyan-300/40 bg-cyan-500/15 text-cyan-100'
+                          : isPostponed
+                            ? 'border-orange-300/40 bg-orange-500/15 text-orange-100'
+                            : 'border-cyan-300/40 bg-cyan-500/15 text-cyan-100'
 
                       return (
                         <button
@@ -3317,9 +3326,9 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                   </div>
 
                   {selectedMatchHistory?.record.highlightVideos && selectedMatchHistory.record.highlightVideos.length > 0 ? (
-                    <div className="mt-2 flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 md:grid md:max-h-[30rem] md:grid-cols-1 md:gap-2 md:overflow-x-hidden md:overflow-y-auto md:pr-1">
+                    <div className="mt-2 max-h-[24rem] space-y-2 overflow-y-auto pr-1 md:max-h-[30rem]">
                       {selectedMatchHistory.record.highlightVideos.map((video) => (
-                        <div key={video.id} className="min-w-[18rem] snap-start rounded border border-white/10 bg-slate-900/70 p-2 md:min-w-0">
+                        <div key={video.id} className="rounded border border-white/10 bg-slate-900/70 p-2">
                           <p className="mb-2 truncate text-[11px] font-semibold text-slate-200">{video.name}</p>
                           <video src={video.url} controls preload="metadata" playsInline className="w-full rounded-lg bg-slate-950" />
                         </div>

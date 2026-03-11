@@ -1248,8 +1248,8 @@ export const apiService = {
   async saveFixtureSchedule(
     leagueId: string,
     matchId: string,
-    payload: { categoryId: string; round: number; scheduledAt: string; venue?: string },
-  ): Promise<ApiResponse<{ matchId: string; scheduledAt: string; venue?: string }>> {
+    payload: { categoryId: string; round: number; scheduledAt: string; venue?: string; status?: 'scheduled' | 'postponed' },
+  ): Promise<ApiResponse<{ matchId: string; scheduledAt: string; venue?: string; status?: 'scheduled' | 'postponed' }>> {
     try {
       const response = await apiFetch(`${apiBaseUrl}/api/admin/leagues/${leagueId}/matches/${encodeURIComponent(matchId)}/schedule`, {
         method: 'POST',
@@ -1262,7 +1262,7 @@ export const apiService = {
         return { ok: false, message: errorPayload.message ?? 'No se pudo guardar fecha del partido' }
       }
 
-      const responsePayload = (await response.json()) as { data: { matchId: string; scheduledAt: string; venue?: string } }
+      const responsePayload = (await response.json()) as { data: { matchId: string; scheduledAt: string; venue?: string; status?: 'scheduled' | 'postponed' } }
       return { ok: true, data: responsePayload.data }
     } catch {
       return { ok: false, message: 'Sin conexión con backend' }
