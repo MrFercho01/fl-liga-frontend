@@ -1,5 +1,6 @@
 import { toPng } from 'html-to-image'
 import JSZip from 'jszip'
+import QRCode from 'qrcode'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiService } from '../services/api'
 import type { FixtureResponse, FixtureScheduleEntry, PlayedMatchRecord, RegisteredTeam, RoundAwardsRankingEntry } from '../types/admin.ts'
@@ -60,7 +61,7 @@ interface RoundAwardsDraft {
   roundBestPlayerId: string
 }
 
-type AdminTab = 'ligas' | 'equipos' | 'jugadores' | 'fixture' | 'mvp'
+type AdminTab = 'ligas' | 'equipos' | 'jugadores' | 'carnet' | 'fixture' | 'mvp'
 type ConfirmAction =
   | { type: 'delete-league'; leagueId: string; label: string }
   | { type: 'delete-team'; teamId: string; label: string }
@@ -144,6 +145,26 @@ const normalizeLabel = (value: string) =>
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+
+const loadImageAsDataUrl = async (src?: string) => {
+  if (!src) return ''
+  if (src.startsWith('data:')) return src
+
+  try {
+    const response = await fetch(src)
+    if (!response.ok) return ''
+    const blob = await response.blob()
+
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+      reader.onerror = () => reject(new Error('No se pudo convertir imagen'))
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    return ''
+  }
+}
 
 const normalizeHexColor = (value?: string) => {
   if (!value) return '#0f172a'
@@ -320,6 +341,10 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [digitalCardTeamId, setDigitalCardTeamId] = useState('')
   const [digitalCardPlayerId, setDigitalCardPlayerId] = useState('')
   const [isGeneratingBulkCards, setIsGeneratingBulkCards] = useState(false)
+  const [digitalCardLeagueLogoDataUrl, setDigitalCardLeagueLogoDataUrl] = useState('')
+  const [digitalCardTeamLogoDataUrl, setDigitalCardTeamLogoDataUrl] = useState('')
+  const [digitalCardPlayerPhotoDataUrl, setDigitalCardPlayerPhotoDataUrl] = useState('')
+  const [digitalCardQrDataUrl, setDigitalCardQrDataUrl] = useState('')
 
   const [videoFormByMatch, setVideoFormByMatch] = useState<Record<string, { file: File | null; name: string; url: string; mode: 'file' | 'url' }>>({})
   const [videoUploadingByMatch, setVideoUploadingByMatch] = useState<Record<string, boolean>>({})
@@ -748,6 +773,12 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
   const digitalCardThemeColor = normalizeHexColor(selectedLeague?.themeColor)
   const digitalCardTextColor = getContrastTextColor(digitalCardThemeColor)
+  const digitalCardLeagueInitials = (selectedLeague?.name ?? 'FL')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('')
 
   const validationPayload = useMemo(() => {
     if (!selectedLeague || !digitalCardTeam || !digitalCardPlayer) return ''
@@ -767,10 +798,59 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     })
   }, [activeCategoryId, activeCategoryName, digitalCardPlayer, digitalCardTeam, selectedLeague])
 
-  const digitalCardQrUrl = useMemo(() => {
-    if (!validationPayload) return ''
-    return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(validationPayload)}`
+  useEffect(() => {
+    let mounted = true
+
+    const buildQr = async () => {
+      if (!validationPayload) {
+        if (mounted) setDigitalCardQrDataUrl('')
+        return
+      }
+
+      try {
+        const qr = await QRCode.toDataURL(validationPayload, {
+          margin: 1,
+          width: 256,
+          color: {
+            dark: '#0f172a',
+            light: '#ffffff',
+          },
+        })
+        if (mounted) setDigitalCardQrDataUrl(qr)
+      } catch {
+        if (mounted) setDigitalCardQrDataUrl('')
+      }
+    }
+
+    void buildQr()
+
+    return () => {
+      mounted = false
+    }
   }, [validationPayload])
+
+  useEffect(() => {
+    let mounted = true
+
+    const loadAssets = async () => {
+      const [leagueLogo, teamLogo, playerPhoto] = await Promise.all([
+        loadImageAsDataUrl(selectedLeague?.logoUrl),
+        loadImageAsDataUrl(digitalCardTeam?.logoUrl),
+        loadImageAsDataUrl(digitalCardPlayer?.photoUrl),
+      ])
+
+      if (!mounted) return
+      setDigitalCardLeagueLogoDataUrl(leagueLogo)
+      setDigitalCardTeamLogoDataUrl(teamLogo)
+      setDigitalCardPlayerPhotoDataUrl(playerPhoto)
+    }
+
+    void loadAssets()
+
+    return () => {
+      mounted = false
+    }
+  }, [digitalCardPlayer?.photoUrl, digitalCardTeam?.logoUrl, selectedLeague?.logoUrl])
 
   useEffect(() => {
     if (!selectedTeam) return
@@ -1404,16 +1484,46 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
   }
 
+  const waitForCardAssets = async () => {
+    if (!digitalCardRef.current) return
+    const images = Array.from(digitalCardRef.current.querySelectorAll('img'))
+    await Promise.all(
+      images.map(
+        (image) =>
+          new Promise<void>((resolve) => {
+            if (image.complete) {
+              resolve()
+              return
+            }
+
+            const handleDone = () => {
+              image.removeEventListener('load', handleDone)
+              image.removeEventListener('error', handleDone)
+              resolve()
+            }
+
+            image.addEventListener('load', handleDone)
+            image.addEventListener('error', handleDone)
+          }),
+      ),
+    )
+  }
+
   const generateCurrentCardDataUrl = async () => {
     if (!digitalCardRef.current) {
       throw new Error('no-card-ref')
     }
 
     await waitForCardRender()
+    await waitForCardAssets()
 
-    return toPng(digitalCardRef.current, {
+    const node = digitalCardRef.current
+
+    return toPng(node, {
       cacheBust: true,
       pixelRatio: 3,
+      width: node.scrollWidth,
+      height: node.scrollHeight,
     })
   }
 
@@ -1932,7 +2042,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       ? 1
       : tab === 'equipos'
         ? 3
-        : tab === 'jugadores'
+        : tab === 'jugadores' || tab === 'carnet'
           ? 4
           : tab === 'fixture' || tab === 'mvp'
             ? 5
@@ -1949,6 +2059,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
           { id: 'ligas', label: 'Ligas' },
           { id: 'equipos', label: 'Equipos' },
           { id: 'jugadores', label: 'Jugadores' },
+          { id: 'carnet', label: 'Carnet' },
           { id: 'fixture', label: 'Fixture' },
           { id: 'mvp', label: 'MVP' },
         ] as Array<{ id: AdminTab; label: string }>).map((item) => (
@@ -2443,167 +2554,13 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   >
                     {(playerReplacementByTeam[selectedTeam.id]?.enabled ?? false) ? 'Reemplazar jugadora' : 'Agregar jugador'}
                   </button>
-
-                  <div className="mt-4 rounded-xl border border-white/15 bg-slate-950/60 p-3">
-                    <p className="text-sm font-semibold text-white">Carnet digital de jugadoras</p>
-                    <p className="mt-1 text-xs text-slate-300">
-                      Genera por equipo y jugadora. Incluye datos de liga, categoría, dorsal y QR para validación de registro.
-                    </p>
-
-                    <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
-                      <select
-                        value={digitalCardTeam?.id ?? ''}
-                        onChange={(event) => {
-                          setDigitalCardTeamId(event.target.value)
-                          setDigitalCardPlayerId('')
-                        }}
-                        className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs text-white"
-                      >
-                        {teams.map((team) => (
-                          <option key={`digital-card-team-${team.id}`} value={team.id}>{team.name}</option>
-                        ))}
-                      </select>
-
-                      <select
-                        value={digitalCardPlayer?.id ?? ''}
-                        onChange={(event) => setDigitalCardPlayerId(event.target.value)}
-                        className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs text-white"
-                      >
-                        {(digitalCardTeam?.players ?? []).map((player) => (
-                          <option key={`digital-card-player-${player.id}`} value={player.id}>
-                            {player.name} · #{player.number}
-                          </option>
-                        ))}
-                      </select>
-
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void downloadDigitalCardPng()}
-                          disabled={!digitalCardPlayer || isGeneratingBulkCards}
-                          className="flex-1 rounded border border-emerald-300/40 bg-emerald-500/20 px-3 py-2 text-xs font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Descargar imagen
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void shareDigitalCardByWhatsapp()}
-                          disabled={!digitalCardPlayer || isGeneratingBulkCards}
-                          className="flex-1 rounded border border-cyan-300/40 bg-cyan-500/20 px-3 py-2 text-xs font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Compartir por WS
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                      <button
-                        type="button"
-                        onClick={() => void downloadTeamCardsZip()}
-                        disabled={!digitalCardTeam || isGeneratingBulkCards}
-                        className="rounded border border-violet-300/40 bg-violet-500/20 px-3 py-2 text-xs font-semibold text-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {isGeneratingBulkCards ? 'Generando ZIP...' : 'Descargar ZIP del equipo'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void downloadCategoryCardsZip()}
-                        disabled={teams.length === 0 || isGeneratingBulkCards}
-                        className="rounded border border-amber-300/40 bg-amber-500/20 px-3 py-2 text-xs font-semibold text-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {isGeneratingBulkCards ? 'Generando ZIP...' : 'Descargar ZIP de categoría'}
-                      </button>
-                    </div>
-
-                    <p className="mt-2 text-[11px] text-slate-400">
-                      Regeneración automática: si editas foto, dorsal o nombre de una jugadora, al volver a generar el carnet individual o masivo saldrá con datos actualizados.
-                    </p>
-
-                    {!digitalCardTeam || !digitalCardPlayer ? (
-                      <p className="mt-3 text-xs text-slate-400">Selecciona equipo y jugadora para previsualizar el carnet.</p>
-                    ) : (
-                      <div className="mt-4 overflow-x-auto pb-1">
-                        <div
-                          ref={digitalCardRef}
-                          className="relative h-[240px] w-[420px] overflow-hidden rounded-2xl border border-white/25 p-4 shadow-2xl"
-                          style={{
-                            backgroundImage: `linear-gradient(160deg, ${toRgba(digitalCardThemeColor, 0.98)} 0%, ${toRgba(
-                              digitalCardThemeColor,
-                              0.7,
-                            )} 46%, ${toRgba('#020617', 0.95)} 100%)`,
-                            color: digitalCardTextColor,
-                          }}
-                        >
-                          <div className="absolute inset-0 opacity-15" style={{ backgroundImage: 'radial-gradient(circle at 18% 20%, #ffffff 0%, transparent 38%), radial-gradient(circle at 90% 88%, #ffffff 0%, transparent 28%)' }} />
-
-                          <div className="relative z-10 flex h-full flex-col justify-between">
-                            <div className="rounded-lg border border-white/20 bg-black/15 p-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                  {selectedLeague.logoUrl ? (
-                                    <img
-                                      src={selectedLeague.logoUrl}
-                                      alt={selectedLeague.name}
-                                      crossOrigin="anonymous"
-                                      referrerPolicy="no-referrer"
-                                      className="h-10 w-10 rounded-full border border-white/40 bg-white object-contain p-1"
-                                    />
-                                  ) : (
-                                    <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/40 bg-white/20 text-[10px] font-bold">FL</div>
-                                  )}
-                                  <div>
-                                    <p className="text-[13px] font-bold leading-tight">CARNET DIGITAL OFICIAL</p>
-                                    <p className="text-[10px] opacity-95">{selectedLeague.name} · Temporada {selectedLeague.season} · {activeCategoryName}</p>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-[auto_1fr] items-center gap-3">
-                              {digitalCardPlayer.photoUrl ? (
-                                <img
-                                  src={digitalCardPlayer.photoUrl}
-                                  alt={digitalCardPlayer.name}
-                                  crossOrigin="anonymous"
-                                  referrerPolicy="no-referrer"
-                                  className="h-24 w-24 rounded-xl border-2 border-white/70 bg-slate-900 object-cover"
-                                />
-                              ) : (
-                                <div className="flex h-24 w-24 items-center justify-center rounded-xl border-2 border-white/70 bg-slate-900/70 text-xs font-semibold">SIN FOTO</div>
-                              )}
-
-                              <div className="min-w-0 rounded-lg border border-white/20 bg-black/20 p-2">
-                                <p className="truncate text-[11px] font-semibold tracking-wide opacity-90">NOMBRES</p>
-                                <p className="truncate text-lg font-black leading-tight">{digitalCardPlayer.name}</p>
-                                <p className="mt-1 text-sm font-bold">Dorsal #{digitalCardPlayer.number}</p>
-                                <div className="mt-1 flex items-center gap-2">
-                                  <TeamLogo logoUrl={digitalCardTeam.logoUrl} name={digitalCardTeam.name} sizeClass="h-7 w-7" />
-                                  <p className="truncate text-[12px] font-semibold">{digitalCardTeam.name}</p>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-[92px_1fr] items-end gap-3">
-                              <div className="rounded-md border border-white/40 bg-white p-1 text-slate-900">
-                                {digitalCardQrUrl ? (
-                                  <img
-                                    src={digitalCardQrUrl}
-                                    alt="QR validación"
-                                    crossOrigin="anonymous"
-                                    referrerPolicy="no-referrer"
-                                    className="h-20 w-20"
-                                  />
-                                ) : (
-                                  <div className="flex h-20 w-20 items-center justify-center text-[10px] font-semibold">QR</div>
-                                )}
-                              </div>
-                              <p className="text-[10px] opacity-95">Escanea para validar registro de jugadora en FL Liga.</p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTab('carnet')}
+                    className="mt-3 rounded border border-cyan-300/40 bg-cyan-500/20 px-3 py-1 text-xs font-semibold text-cyan-100"
+                  >
+                    Ir a pestaña Carnet digital
+                  </button>
 
                   <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
                     {playerPagination.pageItems.map((player) => {
@@ -2672,6 +2629,176 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     </div>
                   )}
                 </>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === 'carnet' && (
+        <div className="mt-4 rounded-xl border border-white/10 bg-slate-900/60 p-4">
+          {!selectedLeague ? (
+            <p className="text-sm text-slate-300">Selecciona una liga para generar carnets.</p>
+          ) : teams.length === 0 ? (
+            <p className="text-sm text-slate-300">No hay equipos en la categoría seleccionada para generar carnets.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                <select
+                  value={activeCategoryId}
+                  onChange={(event) => {
+                    setSelectedCategoryId(event.target.value)
+                    setSelectedTeamId('')
+                    setDigitalCardTeamId('')
+                    setDigitalCardPlayerId('')
+                  }}
+                  className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white"
+                >
+                  {categoryOptions.map((category) => (
+                    <option key={category.id} value={category.id}>{category.name}</option>
+                  ))}
+                </select>
+
+                <select
+                  value={digitalCardTeam?.id ?? ''}
+                  onChange={(event) => {
+                    setDigitalCardTeamId(event.target.value)
+                    setDigitalCardPlayerId('')
+                  }}
+                  className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white"
+                >
+                  {teams.map((team) => (
+                    <option key={`digital-card-team-${team.id}`} value={team.id}>{team.name}</option>
+                  ))}
+                </select>
+
+                <select
+                  value={digitalCardPlayer?.id ?? ''}
+                  onChange={(event) => setDigitalCardPlayerId(event.target.value)}
+                  className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white"
+                >
+                  {(digitalCardTeam?.players ?? []).map((player) => (
+                    <option key={`digital-card-player-${player.id}`} value={player.id}>
+                      {player.name} · #{player.number}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
+                <button
+                  type="button"
+                  onClick={() => void downloadDigitalCardPng()}
+                  disabled={!digitalCardPlayer || isGeneratingBulkCards}
+                  className="rounded border border-emerald-300/40 bg-emerald-500/20 px-3 py-2 text-xs font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Descargar imagen
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void shareDigitalCardByWhatsapp()}
+                  disabled={!digitalCardPlayer || isGeneratingBulkCards}
+                  className="rounded border border-cyan-300/40 bg-cyan-500/20 px-3 py-2 text-xs font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Compartir por WS
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void downloadTeamCardsZip()}
+                  disabled={!digitalCardTeam || isGeneratingBulkCards}
+                  className="rounded border border-violet-300/40 bg-violet-500/20 px-3 py-2 text-xs font-semibold text-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isGeneratingBulkCards ? 'Generando ZIP...' : 'ZIP del equipo'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void downloadCategoryCardsZip()}
+                  disabled={teams.length === 0 || isGeneratingBulkCards}
+                  className="rounded border border-amber-300/40 bg-amber-500/20 px-3 py-2 text-xs font-semibold text-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isGeneratingBulkCards ? 'Generando ZIP...' : 'ZIP de categoría'}
+                </button>
+              </div>
+
+              <p className="mt-2 text-[11px] text-slate-400">
+                Si cambian datos de jugadora (foto, dorsal, nombres), vuelve a generar y saldrá actualizado automáticamente.
+              </p>
+
+              {!digitalCardTeam || !digitalCardPlayer ? (
+                <p className="mt-3 text-xs text-slate-400">Selecciona equipo y jugadora para previsualizar el carnet.</p>
+              ) : (
+                <div className="mt-4 overflow-x-auto pb-2">
+                  <div
+                    ref={digitalCardRef}
+                    className="relative h-[260px] w-[460px] overflow-hidden rounded-2xl border border-white/25 p-4 shadow-2xl"
+                    style={{
+                      backgroundImage: `linear-gradient(160deg, ${toRgba(digitalCardThemeColor, 0.98)} 0%, ${toRgba(
+                        digitalCardThemeColor,
+                        0.75,
+                      )} 46%, ${toRgba('#020617', 0.95)} 100%)`,
+                      color: digitalCardTextColor,
+                    }}
+                  >
+                    <div className="absolute inset-0 opacity-15" style={{ backgroundImage: 'radial-gradient(circle at 18% 20%, #ffffff 0%, transparent 38%), radial-gradient(circle at 90% 88%, #ffffff 0%, transparent 28%)' }} />
+
+                    <div className="relative z-10 flex h-full flex-col justify-between gap-3">
+                      <div className="rounded-lg border border-white/20 bg-black/15 p-2.5">
+                        <div className="flex items-center gap-2.5">
+                          {digitalCardLeagueLogoDataUrl ? (
+                            <img
+                              src={digitalCardLeagueLogoDataUrl}
+                              alt={selectedLeague.name}
+                              className="h-11 w-11 rounded-full border border-white/40 bg-white object-contain p-1"
+                            />
+                          ) : (
+                            <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/40 bg-white/20 text-[11px] font-bold">{digitalCardLeagueInitials || 'FL'}</div>
+                          )}
+                          <div>
+                            <p className="text-[15px] font-black leading-tight">CARNET DIGITAL OFICIAL</p>
+                            <p className="text-[11px] opacity-95">{selectedLeague.name} · Temporada {selectedLeague.season} · {activeCategoryName}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-[auto_1fr] items-center gap-3">
+                        {digitalCardPlayerPhotoDataUrl ? (
+                          <img
+                            src={digitalCardPlayerPhotoDataUrl}
+                            alt={digitalCardPlayer.name}
+                            className="h-28 w-28 rounded-xl border-2 border-white/70 bg-slate-900 object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-28 w-28 items-center justify-center rounded-xl border-2 border-white/70 bg-slate-900/70 text-xs font-semibold">SIN FOTO</div>
+                        )}
+
+                        <div className="min-w-0 rounded-lg border border-white/20 bg-black/20 p-2.5">
+                          <p className="truncate text-[11px] font-semibold tracking-wide opacity-90">NOMBRES</p>
+                          <p className="truncate text-xl font-black leading-tight">{digitalCardPlayer.name}</p>
+                          <p className="mt-1 text-lg font-bold">Dorsal #{digitalCardPlayer.number}</p>
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <TeamLogo logoUrl={digitalCardTeamLogoDataUrl || undefined} name={digitalCardTeam.name} sizeClass="h-8 w-8" />
+                            <p className="truncate text-[14px] font-semibold">{digitalCardTeam.name}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-[108px_1fr] items-end gap-3">
+                        <div className="rounded-md border border-white/40 bg-white p-1.5 text-slate-900">
+                          {digitalCardQrDataUrl ? (
+                            <img
+                              src={digitalCardQrDataUrl}
+                              alt="QR validación"
+                              className="h-24 w-24"
+                            />
+                          ) : (
+                            <div className="flex h-24 w-24 items-center justify-center text-[10px] font-semibold">QR</div>
+                          )}
+                        </div>
+                        <p className="text-[11px] opacity-95">Escanea para validar registro de jugadora en plantilla titular/suplente.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               )}
             </>
           )}
