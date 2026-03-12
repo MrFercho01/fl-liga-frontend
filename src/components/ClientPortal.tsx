@@ -7,7 +7,7 @@ import type { LiveEvent, LiveMatch } from '../types/live'
 
 const androidApkPublicUrl =
   (import.meta.env.VITE_ANDROID_APK_URL as string | undefined)?.trim()
-  || 'https://fl-liga-backend.onrender.com/android/fl-liga-mobile-preview.apk'
+  || 'https://fl-liga-backend.onrender.com/android/FL%20league.apk'
 
 interface PublicLeagueSummary {
   id: string
