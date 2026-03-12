@@ -20,6 +20,7 @@ interface PlayerDraft {
   age: number
   number: number
   position: string
+  registrationStatus: 'pending' | 'registered'
   photoUrl: string
 }
 
@@ -75,6 +76,7 @@ const defaultPlayerDraft: PlayerDraft = {
   age: 18,
   number: 1,
   position: 'POR',
+  registrationStatus: 'pending',
   photoUrl: '',
 }
 
@@ -359,7 +361,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [videoUploadingByMatch, setVideoUploadingByMatch] = useState<Record<string, boolean>>({})
 
 
-  const categoryOptions = selectedLeague?.categories ?? []
+  const categoryOptions = useMemo(() => selectedLeague?.categories ?? [], [selectedLeague])
   const activeCategoryId =
     selectedCategoryId && categoryOptions.some((category) => category.id === selectedCategoryId)
       ? selectedCategoryId
@@ -1953,6 +1955,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       age: draft.age,
       number: draft.number,
       position: normalizePosition(draft.position),
+      registrationStatus: draft.registrationStatus,
       photoUrl: draft.photoUrl || undefined,
       replacePlayerId: replacementConfig.enabled ? replacementConfig.replacePlayerId : undefined,
       replacementReason: replacementConfig.enabled ? 'injury' : undefined,
@@ -2121,6 +2124,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       age: payload.age,
       number: payload.number,
       position: normalizePosition(payload.position),
+      registrationStatus: payload.registrationStatus,
       photoUrl: payload.photoUrl || undefined,
     })
 
@@ -2688,7 +2692,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                       {filteredPlayers.length} jugadores
                     </p>
                   </div>
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-6">
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-7">
                     <input value={(playerDraftByTeam[selectedTeam.id] ?? defaultPlayerDraft).name} onChange={(event) => setPlayerDraftByTeam((current) => ({ ...current, [selectedTeam.id]: { ...(current[selectedTeam.id] ?? defaultPlayerDraft), name: event.target.value } }))} placeholder="Nombre jugador" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
                     <input value={(playerDraftByTeam[selectedTeam.id] ?? defaultPlayerDraft).nickname} onChange={(event) => setPlayerDraftByTeam((current) => ({ ...current, [selectedTeam.id]: { ...(current[selectedTeam.id] ?? defaultPlayerDraft), nickname: event.target.value } }))} placeholder="Apodo" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
                     <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-[11px] text-amber-200">Edad (años)
@@ -2701,6 +2705,22 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                       {playerPositionOptions.map((position) => (
                         <option key={position} value={position}>{position}</option>
                       ))}
+                    </select>
+                    <select
+                      value={(playerDraftByTeam[selectedTeam.id] ?? defaultPlayerDraft).registrationStatus}
+                      onChange={(event) =>
+                        setPlayerDraftByTeam((current) => ({
+                          ...current,
+                          [selectedTeam.id]: {
+                            ...(current[selectedTeam.id] ?? defaultPlayerDraft),
+                            registrationStatus: event.target.value as 'pending' | 'registered',
+                          },
+                        }))
+                      }
+                      className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white"
+                    >
+                      <option value="pending">Pendiente de registro</option>
+                      <option value="registered">Registro OK</option>
                     </select>
                     <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">Foto
                       <input type="file" accept="image/*" className="mt-1 block w-full" onChange={async (event) => {
@@ -2788,6 +2808,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                         age: player.age,
                         number: player.number,
                         position: player.position,
+                        registrationStatus: player.registrationStatus ?? 'registered',
                         photoUrl: player.photoUrl ?? '',
                       }
 
@@ -2802,7 +2823,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                             <p className="text-xs text-slate-300">{player.name} · Dorsal #{player.number} · {player.age} años</p>
                           </div>
 
-                          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-6">
+                          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-7">
                             <input value={draft.name} onChange={(event) => updatePlayerEdit(selectedTeam.id, player.id, { ...draft, name: event.target.value })} className="rounded border border-white/20 bg-slate-900 px-1 py-1 text-[11px] text-white" />
                             <input value={draft.nickname} onChange={(event) => updatePlayerEdit(selectedTeam.id, player.id, { ...draft, nickname: event.target.value })} className="rounded border border-white/20 bg-slate-900 px-1 py-1 text-[11px] text-white" />
                             <label className="rounded border border-white/20 bg-slate-900 px-1 py-1 text-[10px] text-amber-200">Edad
@@ -2815,6 +2836,19 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                               {playerPositionOptions.map((position) => (
                                 <option key={position} value={position}>{position}</option>
                               ))}
+                            </select>
+                            <select
+                              value={draft.registrationStatus}
+                              onChange={(event) =>
+                                updatePlayerEdit(selectedTeam.id, player.id, {
+                                  ...draft,
+                                  registrationStatus: event.target.value as 'pending' | 'registered',
+                                })
+                              }
+                              className="rounded border border-white/20 bg-slate-900 px-1 py-1 text-[11px] text-white"
+                            >
+                              <option value="pending">Pendiente</option>
+                              <option value="registered">Registro OK</option>
                             </select>
                             <label className="rounded border border-white/20 bg-slate-900 px-1 py-1 text-[11px] text-slate-200">Foto
                               <input type="file" accept="image/*" className="mt-1 block w-full" onChange={async (event) => {

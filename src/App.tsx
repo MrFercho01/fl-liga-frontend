@@ -497,12 +497,11 @@ function App() {
     }
 
     setLeagues(response.data)
-    if (response.data.length > 0) {
-      const stillExists = response.data.some((league) => league.id === selectedLeagueId)
-      setSelectedLeagueId(stillExists ? selectedLeagueId : response.data[0]?.id ?? '')
-    } else {
-      setSelectedLeagueId('')
-    }
+    setSelectedLeagueId((currentSelectedLeagueId) => {
+      if (response.data.length === 0) return ''
+      const stillExists = response.data.some((league) => league.id === currentSelectedLeagueId)
+      return stillExists ? currentSelectedLeagueId : (response.data[0]?.id ?? '')
+    })
 
     const liveResponse = await apiService.getLiveMatch()
     if (liveResponse.ok) {
@@ -538,7 +537,7 @@ function App() {
     }
 
     setLoading(false)
-  }, [authUser, selectedLeagueId])
+  }, [authUser])
 
   useEffect(() => {
     queueMicrotask(() => {

@@ -5,6 +5,7 @@ export interface RegisteredPlayer {
   age: number
   number: number
   position: string
+  registrationStatus?: 'pending' | 'registered'
   photoUrl?: string
 }
 

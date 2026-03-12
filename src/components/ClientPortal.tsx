@@ -5,6 +5,10 @@ import { apiBaseUrl, apiService } from '../services/api'
 import type { FixtureScheduleEntry } from '../types/admin'
 import type { LiveEvent, LiveMatch } from '../types/live'
 
+const androidApkPublicUrl =
+  (import.meta.env.VITE_ANDROID_APK_URL as string | undefined)?.trim()
+  || 'https://fl-liga-backend.onrender.com/android/fl-liga-mobile-preview.apk'
+
 interface PublicLeagueSummary {
   id: string
   name: string
@@ -2220,6 +2224,12 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <a
+              href={androidApkPublicUrl}
+              className="rounded-full border border-emerald-300/45 bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-100 transition hover:border-emerald-200"
+            >
+              Android APK
+            </a>
             <div className="rounded-full border border-cyan-300/30 bg-cyan-500/10 px-3 py-1 text-xs font-semibold text-cyan-100">
               {visitorAlias ? `Bienvenido ${visitorAlias}` : 'Bienvenido'}
             </div>

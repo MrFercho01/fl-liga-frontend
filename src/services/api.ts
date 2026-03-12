@@ -899,6 +899,7 @@ export const apiService = {
       age: number
       number: number
       position: string
+      registrationStatus?: 'pending' | 'registered'
       photoUrl?: string
       replacePlayerId?: string
       replacementReason?: 'injury'
@@ -1121,6 +1122,7 @@ export const apiService = {
       age?: number
       number?: number
       position?: string
+      registrationStatus?: 'pending' | 'registered'
       photoUrl?: string
     },
   ): Promise<ApiResponse<RegisteredTeam>> {
