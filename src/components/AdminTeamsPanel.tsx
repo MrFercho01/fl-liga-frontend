@@ -612,12 +612,13 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   }
 
   const fixtureMatches = useMemo(() => {
-    if (!fixture) return [] as Array<{ id: string; round: number; homeTeamId: string; awayTeamId: string }>
+    if (!fixture || !Array.isArray(fixture.rounds)) return [] as Array<{ id: string; round: number; homeTeamId: string; awayTeamId: string }>
 
     const result: Array<{ id: string; round: number; homeTeamId: string; awayTeamId: string }> = []
     fixture.rounds.forEach((round) => {
+      if (!round || !Array.isArray(round.matches)) return
       round.matches.forEach((match, index) => {
-        if (match.hasBye || !match.awayTeamId) return
+        if (!match || match.hasBye || !match.awayTeamId) return
         result.push({
           id: `${round.round}-${index}-${match.homeTeamId}-${match.awayTeamId}`,
           round: round.round,
@@ -1134,6 +1135,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
     setDraftMatchHomeTeamId('')
     setDraftMatchAwayTeamId('')
+    setDraftMatchScheduledAt('')
     setDraftMatchVenue('')
     showMessage(`Partido agregado al borrador de Fecha ${activeFixtureRound}`)
   }
@@ -2946,14 +2948,14 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     onChange={async (event) => {
                       const file = event.target.files?.[0]
                       if (!file) return
-                      setDigitalCardLeagueLogoOverrideDataUrl(await toDataUrl(file))
+                      setDigitalCardLeagueOverrideDataUrl(await toDataUrl(file))
                       event.currentTarget.value = ''
                     }}
                   />
                 </label>
                 <button
                   type="button"
-                  onClick={() => setDigitalCardLeagueLogoOverrideDataUrl('')}
+                  onClick={() => setDigitalCardLeagueOverrideDataUrl('')}
                   className="rounded border border-white/20 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200"
                 >
                   Restaurar logo oficial de liga
@@ -3205,7 +3207,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
               </p>
 
               {isReadOnlySeason && (
-                <p className="mt-2 rounded border border-amber-300/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-100">
+                <p className="mt-2 rounded border border-amber-300/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-200">
                   Temporada histórica en solo lectura: puedes consultar fixture, pero no agregar ni publicar cambios.
                 </p>
               )}
