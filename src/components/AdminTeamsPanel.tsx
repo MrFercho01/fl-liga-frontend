@@ -399,12 +399,23 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       .trim()
       .replace(/\s+/g, '-')
 
+  // Control de llamada única para evitar requests duplicados
+  const lastRequestRef = useRef<{ leagueId: string; categoryId: string } | null>(null)
   const loadTeams = useCallback(async () => {
     if (!selectedLeague || !activeCategoryId) {
       setTeams([])
+      lastRequestRef.current = null
       return
     }
-
+    // Solo llamar si los valores realmente cambiaron
+    if (
+      lastRequestRef.current &&
+      lastRequestRef.current.leagueId === selectedLeague.id &&
+      lastRequestRef.current.categoryId === activeCategoryId
+    ) {
+      return
+    }
+    lastRequestRef.current = { leagueId: selectedLeague.id, categoryId: activeCategoryId }
     const response = await apiService.getLeagueTeams(selectedLeague.id, activeCategoryId)
     if (response.ok) {
       setTeams(response.data)
@@ -582,33 +593,37 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     }
 
     setLoading(true)
-    const response = await apiService.createTeamWithLogo(selectedLeague.id, activeCategoryId, teamName, teamLogoUrl, {
-      primaryColor: teamPrimaryColor,
-      secondaryColor: teamSecondaryColor || undefined,
-      director: {
-        name: teamDirectorDraft.name.trim(),
-        ...(teamDirectorDraft.photoUrl ? { photoUrl: teamDirectorDraft.photoUrl } : {}),
-      },
-      assistant: {
-        name: teamAssistantDraft.name.trim(),
-        ...(teamAssistantDraft.photoUrl ? { photoUrl: teamAssistantDraft.photoUrl } : {}),
-      },
-    })
-    if (!response.ok) {
-      showMessage(response.message)
-      setLoading(false)
-      return
-    }
+        const response = await apiService.createTeamWithLogo(selectedLeague.id, activeCategoryId, teamName, teamLogoUrl, {
+          primaryColor: teamPrimaryColor,
+          secondaryColor: teamSecondaryColor || undefined,
+          director: {
+            name: teamDirectorDraft.name.trim(),
+            ...(teamDirectorDraft.photoUrl ? { photoUrl: teamDirectorDraft.photoUrl } : {}),
+          },
+          assistant: {
+            name: teamAssistantDraft.name.trim(),
+            ...(teamAssistantDraft.photoUrl ? { photoUrl: teamAssistantDraft.photoUrl } : {}),
+          },
+        })
+        if (!response.ok) {
+          showMessage(response.message)
+          setLoading(false)
+          return
+        }
 
-    setTeamName('')
-    setTeamLogoUrl('')
-    setTeamPrimaryColor('#3b82f6')
-    setTeamSecondaryColor('')
-    setTeamDirectorDraft({ name: '', photoUrl: '' })
-    setTeamAssistantDraft({ name: '', photoUrl: '' })
-    showMessage('Equipo creado')
-    await loadTeams()
-    setLoading(false)
+        setTeamName('')
+        setTeamLogoUrl('')
+        setTeamPrimaryColor('#3b82f6')
+        setTeamSecondaryColor('')
+        setTeamDirectorDraft({ name: '', photoUrl: '' })
+        setTeamAssistantDraft({ name: '', photoUrl: '' })
+        showMessage('¡Equipo creado exitosamente!')
+        // Forzar recarga del listado de equipos y combos dependientes
+        if (typeof lastRequestRef !== 'undefined' && lastRequestRef.current) {
+          lastRequestRef.current = null;
+        }
+        await loadTeams()
+        setLoading(false)
   }
 
   const fixtureMatches = useMemo(() => {

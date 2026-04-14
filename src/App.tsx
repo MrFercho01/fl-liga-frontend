@@ -2989,8 +2989,9 @@ function App() {
     return clientUsers.flatMap((user) => {
       const companyOrLeague = user.organizationName?.trim() || '-'
       const clientLink = user.publicPortalPath ? `${publicBaseUrl}${user.publicPortalPath}` : '-'
+      const leagues = Array.isArray(user.leagues) ? user.leagues : [];
 
-      if (user.leagues.length === 0) {
+      if (leagues.length === 0) {
         return [
           {
             rowId: `${user.id}__none`,
@@ -3004,7 +3005,7 @@ function App() {
         ]
       }
 
-      return user.leagues.map((league) => {
+      return leagues.map((league) => {
         const leaguePath = league.slug ? `/cliente/${encodeURIComponent(league.slug)}` : ''
         return {
           rowId: `${user.id}__${league.id}`,
