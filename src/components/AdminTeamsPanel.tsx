@@ -2948,14 +2948,14 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     onChange={async (event) => {
                       const file = event.target.files?.[0]
                       if (!file) return
-                      setDigitalCardLeagueOverrideDataUrl(await toDataUrl(file))
+                      setDigitalCardLeagueLogoOverrideDataUrl(await toDataUrl(file))
                       event.currentTarget.value = ''
                     }}
                   />
                 </label>
                 <button
                   type="button"
-                  onClick={() => setDigitalCardLeagueOverrideDataUrl('')}
+                  onClick={() => setDigitalCardLeagueLogoOverrideDataUrl('')}
                   className="rounded border border-white/20 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200"
                 >
                   Restaurar logo oficial de liga
