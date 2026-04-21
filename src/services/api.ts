@@ -860,8 +860,14 @@ export const apiService = {
     try {
       const response = await apiFetch(`${apiBaseUrl}/api/admin/leagues/${leagueId}/teams?categoryId=${categoryId}`)
       if (!response.ok) {
-        const payload = (await response.json()) as { message?: string }
-        return { ok: false, message: payload.message ?? 'No se pudo cargar equipos' }
+        const payload = (await response.json()) as { message?: string, code?: string }
+        // Si la sesión expiró o el usuario está inactivo, forzar logout
+        if (payload.code === 'SESSION_EXPIRED' || payload.code === 'INACTIVE' || payload.code === 'NO_AUTH' || payload.code === 'NO_USER') {
+          apiService.setAuthToken('')
+          window.location.href = '/login'
+          return { ok: false, message: 'Sesión expirada o usuario inactivo. Por favor, vuelve a iniciar sesión.', code: payload.code }
+        }
+        return { ok: false, message: payload.message ?? 'No se pudo cargar equipos', code: payload.code }
       }
 
       const payload = (await response.json()) as { data: RegisteredTeam[] }
