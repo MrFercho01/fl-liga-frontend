@@ -2578,7 +2578,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     </thead>
                     <tbody>
                       {teamPagination.pageItems.map((team) => (
-                        <tr key={team.id} className={team.active === false ? 'bg-amber-950/20' : 'bg-slate-900/60'}>
+                        <tr key={team.id} className={(team.active === false ? 'bg-amber-950/20' : 'bg-slate-900/60') + ' items-center'}>
                           <td className="p-2 text-center align-middle">
                             <label className="cursor-pointer">
                               {teamEditById[team.id]?.logoUrl || team.logoUrl ? (
@@ -2621,25 +2621,15 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                           <td className="p-2 font-semibold align-middle">
                             <input value={teamEditById[team.id]?.name ?? team.name} onChange={(event) => updateTeamEdit(team, 'name', event.target.value)} className="w-full rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
                           </td>
-                          <td className="p-2 flex items-center gap-2 align-middle">
+                          <td className="p-2 text-center align-middle">
                             <div className="flex items-center gap-2 w-full min-w-[120px]">
                               <label className="cursor-pointer flex-shrink-0">
-                                {teamEditById[team.id]?.directorPhotoUrl
-                                  ? <img
-                                      src={teamEditById[team.id]?.directorPhotoUrl}
-                                      alt="DT"
-                                      className="h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 object-cover"
-                                      onClick={() => document.getElementById(`dt-photo-input-${team.id}`)?.click()}
-                                    />
-                                  : team.technicalStaff?.director?.photoUrl
-                                    ? <img
-                                        src={team.technicalStaff.director.photoUrl}
-                                        alt="DT"
-                                        className="h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 object-cover"
-                                        onClick={() => document.getElementById(`dt-photo-input-${team.id}`)?.click()}
-                                      />
-                                    : <span className="flex h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 bg-slate-700 text-slate-400 items-center justify-center cursor-pointer" onClick={() => document.getElementById(`dt-photo-input-${team.id}`)?.click()}>DT</span>
-                                }
+                                <img
+                                  src={teamEditById[team.id]?.directorPhotoUrl || team.technicalStaff?.director?.photoUrl || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2228%22 height=%2228%22><rect width=%2228%22 height=%2228%22 rx=%2214%22 fill=%22%233b4252%22/><text x=%2250%25%22 y=%2255%25%22 text-anchor=%22middle%22 fill=%22%23cbd5e1%22 font-size=%2212%22 font-family=%22Arial%22 dy=%22.3em%22>DT</text></svg>'}
+                                  alt="DT"
+                                  className="h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 object-cover bg-slate-700 cursor-pointer"
+                                  onClick={() => document.getElementById(`dt-photo-input-${team.id}`)?.click()}
+                                />
                                 <input
                                   id={`dt-photo-input-${team.id}`}
                                   type="file"
@@ -2669,25 +2659,15 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                               <input value={teamEditById[team.id]?.directorName ?? team.technicalStaff?.director?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'directorName', event.target.value)} placeholder="DT" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white w-[80px] min-w-0 flex-1" />
                             </div>
                           </td>
-                          <td className="p-2 flex items-center gap-2 align-middle">
+                          <td className="p-2 flex items-center gap-2 align-middle h-[48px]">
                             <div className="flex items-center gap-2 w-full min-w-[120px]">
                               <label className="cursor-pointer flex-shrink-0">
-                                {teamEditById[team.id]?.assistantPhotoUrl
-                                  ? <img
-                                      src={teamEditById[team.id]?.assistantPhotoUrl}
-                                      alt="AT"
-                                      className="h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 object-cover"
-                                      onClick={() => document.getElementById(`at-photo-input-${team.id}`)?.click()}
-                                    />
-                                  : team.technicalStaff?.assistant?.photoUrl
-                                    ? <img
-                                        src={team.technicalStaff.assistant.photoUrl}
-                                        alt="AT"
-                                        className="h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 object-cover"
-                                        onClick={() => document.getElementById(`at-photo-input-${team.id}`)?.click()}
-                                      />
-                                    : <span className="flex h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 bg-slate-700 text-slate-400 items-center justify-center cursor-pointer" onClick={() => document.getElementById(`at-photo-input-${team.id}`)?.click()}>AT</span>
-                                }
+                                <img
+                                  src={teamEditById[team.id]?.assistantPhotoUrl || team.technicalStaff?.assistant?.photoUrl || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2228%22 height=%2228%22><rect width=%2228%22 height=%2228%22 rx=%2214%22 fill=%22%233b4252%22/><text x=%2250%25%22 y=%2255%25%22 text-anchor=%22middle%22 fill=%22%23cbd5e1%22 font-size=%2212%22 font-family=%22Arial%22 dy=%22.3em%22>AT</text></svg>'}
+                                  alt="AT"
+                                  className="h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 object-cover bg-slate-700 cursor-pointer"
+                                  onClick={() => document.getElementById(`at-photo-input-${team.id}`)?.click()}
+                                />
                                 <input
                                   id={`at-photo-input-${team.id}`}
                                   type="file"
