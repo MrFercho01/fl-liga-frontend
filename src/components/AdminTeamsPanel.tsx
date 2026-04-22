@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiService } from '../services/api'
 import type { FixtureResponse, FixtureScheduleEntry, PlayedMatchRecord, RegisteredTeam, RoundAwardsRankingEntry } from '../types/admin.ts'
 import type { League } from '../types/league.ts'
+import { EditIcon, DeleteIcon } from './ActionIcons'
 
 interface AdminTeamsPanelProps {
   leagues: League[]
@@ -2547,88 +2548,67 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                 <p className="text-[11px] text-slate-400">{filteredTeams.length} equipos</p>
               </div>
 
-              <div className="mt-4 space-y-3">
+              <div className="mt-4 overflow-x-auto">
                 {loading && <p className="text-sm text-slate-300">Cargando equipos...</p>}
                 {!loading && teamPagination.pageItems.length === 0 && <p className="text-sm text-slate-300">No hay equipos en esta categoría.</p>}
-                {teamPagination.pageItems.map((team) => (
-                  <div key={team.id} className={`rounded border p-3 ${team.active === false ? 'border-amber-300/40 bg-amber-950/20' : 'border-white/10 bg-slate-800'}`}>
-                    <div className="flex items-center gap-2">
-                      {team.logoUrl && <img src={team.logoUrl} alt={team.name} className="h-10 w-10 rounded border border-white/20 bg-white object-contain p-1" />}
-                      <p className="font-semibold text-white">{team.name}</p>
-                      {team.active === false && (
-                        <span className="rounded-full border border-amber-300/50 bg-amber-500/20 px-2 py-0.5 text-[11px] font-semibold text-amber-100">Desactivado</span>
-                      )}
-                    </div>
-                    <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-[1.2fr_1fr_1fr_1fr_auto_auto]">
-                      <input value={teamEditById[team.id]?.name ?? team.name} onChange={(event) => updateTeamEdit(team, 'name', event.target.value)} className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
-                      <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">Logo
-                        <input type="file" accept="image/*" className="mt-1 block w-full" onChange={async (event) => {
-                          const file = event.target.files?.[0]
-                          if (!file) return
-                          updateTeamEdit(team, 'logoUrl', await toDataUrl(file))
-                        }} />
-                      </label>
-                      <input value={teamEditById[team.id]?.directorName ?? team.technicalStaff?.director?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'directorName', event.target.value)} placeholder="DT" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
-                      <input value={teamEditById[team.id]?.assistantName ?? team.technicalStaff?.assistant?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'assistantName', event.target.value)} placeholder="AT" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
-                      <button type="button" disabled={isReadOnlySeason} onClick={() => void saveTeamEdit(team)} className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-1 text-xs font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60">Guardar</button>
-                      <button
-                        type="button"
-                        disabled={isReadOnlySeason}
-                        onClick={() => void toggleTeamActive(team, team.active === false)}
-                        className={`rounded border px-2 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${team.active === false ? 'border-emerald-300/40 bg-emerald-500/20 text-emerald-100' : 'border-amber-300/50 bg-amber-500/20 text-amber-100'}`}
-                      >
-                        {team.active === false ? 'Reactivar' : 'Desactivar'}
-                      </button>
-                      <button type="button" disabled={isReadOnlySeason} onClick={() => requestDeleteTeam(team)} className="rounded border border-rose-300/50 bg-rose-600/20 px-2 py-1 text-xs font-semibold text-rose-100 disabled:cursor-not-allowed disabled:opacity-60">Eliminar</button>
-                    </div>
-                    <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-2">
-                      <label className="flex items-center gap-2 rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">
-                        Color principal
-                        <input
-                          type="color"
-                          value={teamEditById[team.id]?.primaryColor ?? team.primaryColor ?? '#3b82f6'}
-                          onChange={(event) => updateTeamEdit(team, 'primaryColor', event.target.value)}
-                          className="h-8 w-16 rounded border border-white/20 cursor-pointer"
-                        />
-                      </label>
-                      <label className="flex items-center gap-2 rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">
-                        Color alterno
-                        <input
-                          type="color"
-                          value={teamEditById[team.id]?.secondaryColor ?? team.secondaryColor ?? '#ffffff'}
-                          onChange={(event) => updateTeamEdit(team, 'secondaryColor', event.target.value)}
-                          className="h-8 w-16 rounded border border-white/20 cursor-pointer"
-                        />
-                      </label>
-                    </div>
-                    <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-2">
-                      <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">Foto DT
-                        <input type="file" accept="image/*" className="mt-1 block w-full" onChange={async (event) => {
-                          const file = event.target.files?.[0]
-                          if (!file) return
-                          updateTeamEdit(team, 'directorPhotoUrl', await toDataUrl(file))
-                        }} />
-                      </label>
-                      <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">Foto AT
-                        <input type="file" accept="image/*" className="mt-1 block w-full" onChange={async (event) => {
-                          const file = event.target.files?.[0]
-                          if (!file) return
-                          updateTeamEdit(team, 'assistantPhotoUrl', await toDataUrl(file))
-                        }} />
-                      </label>
-                    </div>
-                    <div className="mt-2 flex items-center gap-2 text-xs text-slate-300">
-                      {teamEditById[team.id]?.directorPhotoUrl || team.technicalStaff?.director?.photoUrl ? (
-                        <img src={teamEditById[team.id]?.directorPhotoUrl ?? team.technicalStaff?.director?.photoUrl} alt="DT" className="h-8 w-8 rounded-full border border-white/20 object-cover" />
-                      ) : null}
-                      <span>DT: {teamEditById[team.id]?.directorName ?? team.technicalStaff?.director?.name ?? 'Sin registrar'}</span>
-                      {teamEditById[team.id]?.assistantPhotoUrl || team.technicalStaff?.assistant?.photoUrl ? (
-                        <img src={teamEditById[team.id]?.assistantPhotoUrl ?? team.technicalStaff?.assistant?.photoUrl} alt="AT" className="h-8 w-8 rounded-full border border-white/20 object-cover" />
-                      ) : null}
-                      <span>AT: {teamEditById[team.id]?.assistantName ?? team.technicalStaff?.assistant?.name ?? 'Sin registrar'}</span>
-                    </div>
-                  </div>
-                ))}
+                {teamPagination.pageItems.length > 0 && (
+                  <table className="min-w-full text-xs text-slate-200 border border-white/10 rounded-xl overflow-hidden">
+                    <thead className="bg-slate-800/80">
+                      <tr>
+                        <th className="p-2">Logo</th>
+                        <th className="p-2">Nombre</th>
+                        <th className="p-2">DT</th>
+                        <th className="p-2">AT</th>
+                        <th className="p-2">Color principal</th>
+                        <th className="p-2">Color alterno</th>
+                        <th className="p-2">Estado</th>
+                        <th className="p-2 text-center">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {teamPagination.pageItems.map((team) => (
+                        <tr key={team.id} className={team.active === false ? 'bg-amber-950/20' : 'bg-slate-900/60'}>
+                          <td className="p-2 text-center">
+                            {team.logoUrl ? (
+                              <img src={team.logoUrl} alt={team.name} className="h-8 w-8 rounded border border-white/20 bg-white object-contain mx-auto" />
+                            ) : (
+                              <span className="inline-block h-8 w-8 rounded border border-white/20 bg-slate-700 text-slate-400 flex items-center justify-center">—</span>
+                            )}
+                          </td>
+                          <td className="p-2 font-semibold">
+                            <input value={teamEditById[team.id]?.name ?? team.name} onChange={(event) => updateTeamEdit(team, 'name', event.target.value)} className="w-full rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
+                          </td>
+                          <td className="p-2">
+                            <input value={teamEditById[team.id]?.directorName ?? team.technicalStaff?.director?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'directorName', event.target.value)} placeholder="DT" className="w-full rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
+                          </td>
+                          <td className="p-2">
+                            <input value={teamEditById[team.id]?.assistantName ?? team.technicalStaff?.assistant?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'assistantName', event.target.value)} placeholder="AT" className="w-full rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
+                          </td>
+                          <td className="p-2 text-center">
+                            <input type="color" value={teamEditById[team.id]?.primaryColor ?? team.primaryColor ?? '#3b82f6'} onChange={(event) => updateTeamEdit(team, 'primaryColor', event.target.value)} className="h-6 w-12 rounded border border-white/20 cursor-pointer" />
+                          </td>
+                          <td className="p-2 text-center">
+                            <input type="color" value={teamEditById[team.id]?.secondaryColor ?? team.secondaryColor ?? '#ffffff'} onChange={(event) => updateTeamEdit(team, 'secondaryColor', event.target.value)} className="h-6 w-12 rounded border border-white/20 cursor-pointer" />
+                          </td>
+                          <td className="p-2 text-center">
+                            {team.active === false ? (
+                              <span className="rounded-full border border-amber-300/50 bg-amber-500/20 px-2 py-0.5 text-[11px] font-semibold text-amber-100">Desactivado</span>
+                            ) : (
+                              <span className="rounded-full border border-emerald-300/50 bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-100">Activo</span>
+                            )}
+                          </td>
+                          <td className="p-2 flex gap-2 justify-center">
+                            <button type="button" title="Guardar cambios" disabled={isReadOnlySeason} onClick={() => void saveTeamEdit(team)} className="rounded p-1 hover:bg-primary-600/30 disabled:opacity-60"><EditIcon className="w-5 h-5 text-primary-300" /></button>
+                            <button type="button" title={team.active === false ? 'Reactivar' : 'Desactivar'} disabled={isReadOnlySeason} onClick={() => void toggleTeamActive(team, team.active === false)} className="rounded p-1 hover:bg-amber-600/30 disabled:opacity-60">
+                              {team.active === false ? <span className="text-emerald-400">&#8635;</span> : <span className="text-amber-400">&#10006;</span>}
+                            </button>
+                            <button type="button" title="Eliminar equipo" disabled={isReadOnlySeason} onClick={() => requestDeleteTeam(team)} className="rounded p-1 hover:bg-rose-600/30 disabled:opacity-60"><DeleteIcon className="w-5 h-5 text-rose-300" /></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
                 {teamPagination.totalPages > 1 && (
                   <div className="mt-2 flex items-center justify-end gap-2 text-xs text-slate-300">
                     <button type="button" disabled={teamPagination.currentPage === 1} onClick={() => setTeamPage((current) => Math.max(current - 1, 1))} className="rounded border border-white/20 px-2 py-1 disabled:opacity-50">Anterior</button>

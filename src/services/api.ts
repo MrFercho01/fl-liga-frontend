@@ -858,6 +858,7 @@ export const apiService = {
 
   async getLeagueTeams(leagueId: string, categoryId: string): Promise<ApiResponse<RegisteredTeam[]>> {
     try {
+      // Usar solo el endpoint oficial /teams
       const response = await apiFetch(`${apiBaseUrl}/api/admin/leagues/${leagueId}/teams?categoryId=${categoryId}`)
       if (!response.ok) {
         const payload = (await response.json()) as { message?: string, code?: string }
