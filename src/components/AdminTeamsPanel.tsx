@@ -1992,6 +1992,12 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     }))
     showMessage(replacementConfig.enabled ? 'Reemplazo por lesión registrado' : 'Jugador agregado')
     await loadTeams()
+    // Forzar refresco de selectedTeam tras agregar jugador
+    setSelectedTeamId('')
+    setTimeout(() => {
+      setSelectedTeamId(teamId)
+      setPlayerPage(1)
+    }, 0)
   }
 
   const updateTeamEdit = (
@@ -2052,6 +2058,11 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     }
 
     showMessage('Equipo actualizado')
+    setTeamEditById((current) => {
+      const next = { ...current }
+      delete next[team.id]
+      return next
+    })
     await loadTeams()
   }
 
@@ -2561,48 +2572,172 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                         <th className="p-2">AT</th>
                         <th className="p-2">Color principal</th>
                         <th className="p-2">Color alterno</th>
-                        <th className="p-2">Estado</th>
-                        <th className="p-2 text-center">Acciones</th>
+                        <th className="p-2 text-center align-middle">Estado</th>
+                        <th className="p-2 text-center align-middle">Acciones</th>
                       </tr>
                     </thead>
                     <tbody>
                       {teamPagination.pageItems.map((team) => (
                         <tr key={team.id} className={team.active === false ? 'bg-amber-950/20' : 'bg-slate-900/60'}>
-                          <td className="p-2 text-center">
-                            {team.logoUrl ? (
-                              <img src={team.logoUrl} alt={team.name} className="h-8 w-8 rounded border border-white/20 bg-white object-contain mx-auto" />
-                            ) : (
-                              <span className="inline-block h-8 w-8 rounded border border-white/20 bg-slate-700 text-slate-400 flex items-center justify-center">—</span>
-                            )}
+                          <td className="p-2 text-center align-middle">
+                            <label className="cursor-pointer">
+                              {teamEditById[team.id]?.logoUrl || team.logoUrl ? (
+                                <img
+                                  src={teamEditById[team.id]?.logoUrl || team.logoUrl}
+                                  alt={team.name}
+                                  className="h-8 w-8 rounded border border-white/20 bg-white object-contain mx-auto"
+                                  onClick={() => document.getElementById(`team-logo-input-${team.id}`)?.click()}
+                                />
+                              ) : (
+                                <span className="flex h-8 w-8 rounded border border-white/20 bg-slate-700 text-slate-400 items-center justify-center cursor-pointer" onClick={() => document.getElementById(`team-logo-input-${team.id}`)?.click()}>—</span>
+                              )}
+                              <input
+                                id={`team-logo-input-${team.id}`}
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={async (event) => {
+                                  const file = event.target.files?.[0]
+                                  if (!file) return
+                                  const logoUrl = await toDataUrl(file)
+                                  setTeamEditById((current) => ({
+                                    ...current,
+                                    [team.id]: {
+                                      ...current[team.id],
+                                      name: current[team.id]?.name ?? team.name,
+                                      logoUrl,
+                                      primaryColor: current[team.id]?.primaryColor ?? team.primaryColor ?? '#3b82f6',
+                                      secondaryColor: current[team.id]?.secondaryColor ?? team.secondaryColor ?? '',
+                                      directorName: current[team.id]?.directorName ?? team.technicalStaff?.director?.name ?? '',
+                                      directorPhotoUrl: current[team.id]?.directorPhotoUrl ?? team.technicalStaff?.director?.photoUrl ?? '',
+                                      assistantName: current[team.id]?.assistantName ?? team.technicalStaff?.assistant?.name ?? '',
+                                      assistantPhotoUrl: current[team.id]?.assistantPhotoUrl ?? team.technicalStaff?.assistant?.photoUrl ?? '',
+                                    },
+                                  }))
+                                }}
+                              />
+                            </label>
                           </td>
-                          <td className="p-2 font-semibold">
+                          <td className="p-2 font-semibold align-middle">
                             <input value={teamEditById[team.id]?.name ?? team.name} onChange={(event) => updateTeamEdit(team, 'name', event.target.value)} className="w-full rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
                           </td>
-                          <td className="p-2">
-                            <input value={teamEditById[team.id]?.directorName ?? team.technicalStaff?.director?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'directorName', event.target.value)} placeholder="DT" className="w-full rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
+                          <td className="p-2 flex items-center gap-2 align-middle">
+                            <div className="flex items-center gap-2 w-full min-w-[120px]">
+                              <label className="cursor-pointer flex-shrink-0">
+                                {teamEditById[team.id]?.directorPhotoUrl
+                                  ? <img
+                                      src={teamEditById[team.id]?.directorPhotoUrl}
+                                      alt="DT"
+                                      className="h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 object-cover"
+                                      onClick={() => document.getElementById(`dt-photo-input-${team.id}`)?.click()}
+                                    />
+                                  : team.technicalStaff?.director?.photoUrl
+                                    ? <img
+                                        src={team.technicalStaff.director.photoUrl}
+                                        alt="DT"
+                                        className="h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 object-cover"
+                                        onClick={() => document.getElementById(`dt-photo-input-${team.id}`)?.click()}
+                                      />
+                                    : <span className="flex h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 bg-slate-700 text-slate-400 items-center justify-center cursor-pointer" onClick={() => document.getElementById(`dt-photo-input-${team.id}`)?.click()}>DT</span>
+                                }
+                                <input
+                                  id={`dt-photo-input-${team.id}`}
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={async (event) => {
+                                    const file = event.target.files?.[0]
+                                    if (!file) return
+                                    const photoUrl = await toDataUrl(file)
+                                    setTeamEditById((current) => ({
+                                      ...current,
+                                      [team.id]: {
+                                        ...current[team.id],
+                                        name: current[team.id]?.name ?? team.name,
+                                        logoUrl: current[team.id]?.logoUrl ?? team.logoUrl ?? '',
+                                        primaryColor: current[team.id]?.primaryColor ?? team.primaryColor ?? '#3b82f6',
+                                        secondaryColor: current[team.id]?.secondaryColor ?? team.secondaryColor ?? '',
+                                        directorName: current[team.id]?.directorName ?? team.technicalStaff?.director?.name ?? '',
+                                        directorPhotoUrl: photoUrl,
+                                        assistantName: current[team.id]?.assistantName ?? team.technicalStaff?.assistant?.name ?? '',
+                                        assistantPhotoUrl: current[team.id]?.assistantPhotoUrl ?? team.technicalStaff?.assistant?.photoUrl ?? '',
+                                      },
+                                    }))
+                                  }}
+                                />
+                              </label>
+                              <input value={teamEditById[team.id]?.directorName ?? team.technicalStaff?.director?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'directorName', event.target.value)} placeholder="DT" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white w-[80px] min-w-0 flex-1" />
+                            </div>
                           </td>
-                          <td className="p-2">
-                            <input value={teamEditById[team.id]?.assistantName ?? team.technicalStaff?.assistant?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'assistantName', event.target.value)} placeholder="AT" className="w-full rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
+                          <td className="p-2 flex items-center gap-2 align-middle">
+                            <div className="flex items-center gap-2 w-full min-w-[120px]">
+                              <label className="cursor-pointer flex-shrink-0">
+                                {teamEditById[team.id]?.assistantPhotoUrl
+                                  ? <img
+                                      src={teamEditById[team.id]?.assistantPhotoUrl}
+                                      alt="AT"
+                                      className="h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 object-cover"
+                                      onClick={() => document.getElementById(`at-photo-input-${team.id}`)?.click()}
+                                    />
+                                  : team.technicalStaff?.assistant?.photoUrl
+                                    ? <img
+                                        src={team.technicalStaff.assistant.photoUrl}
+                                        alt="AT"
+                                        className="h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 object-cover"
+                                        onClick={() => document.getElementById(`at-photo-input-${team.id}`)?.click()}
+                                      />
+                                    : <span className="flex h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 bg-slate-700 text-slate-400 items-center justify-center cursor-pointer" onClick={() => document.getElementById(`at-photo-input-${team.id}`)?.click()}>AT</span>
+                                }
+                                <input
+                                  id={`at-photo-input-${team.id}`}
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={async (event) => {
+                                    const file = event.target.files?.[0]
+                                    if (!file) return
+                                    const photoUrl = await toDataUrl(file)
+                                    setTeamEditById((current) => ({
+                                      ...current,
+                                      [team.id]: {
+                                        ...current[team.id],
+                                        name: current[team.id]?.name ?? team.name,
+                                        logoUrl: current[team.id]?.logoUrl ?? team.logoUrl ?? '',
+                                        primaryColor: current[team.id]?.primaryColor ?? team.primaryColor ?? '#3b82f6',
+                                        secondaryColor: current[team.id]?.secondaryColor ?? team.secondaryColor ?? '',
+                                        directorName: current[team.id]?.directorName ?? team.technicalStaff?.director?.name ?? '',
+                                        directorPhotoUrl: current[team.id]?.directorPhotoUrl ?? team.technicalStaff?.director?.photoUrl ?? '',
+                                        assistantName: current[team.id]?.assistantName ?? team.technicalStaff?.assistant?.name ?? '',
+                                        assistantPhotoUrl: photoUrl,
+                                      },
+                                    }))
+                                  }}
+                                />
+                              </label>
+                              <input value={teamEditById[team.id]?.assistantName ?? team.technicalStaff?.assistant?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'assistantName', event.target.value)} placeholder="AT" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white w-[80px] min-w-0 flex-1" />
+                            </div>
                           </td>
-                          <td className="p-2 text-center">
+                          <td className="p-2 text-center align-middle">
                             <input type="color" value={teamEditById[team.id]?.primaryColor ?? team.primaryColor ?? '#3b82f6'} onChange={(event) => updateTeamEdit(team, 'primaryColor', event.target.value)} className="h-6 w-12 rounded border border-white/20 cursor-pointer" />
                           </td>
-                          <td className="p-2 text-center">
+                          <td className="p-2 text-center align-middle">
                             <input type="color" value={teamEditById[team.id]?.secondaryColor ?? team.secondaryColor ?? '#ffffff'} onChange={(event) => updateTeamEdit(team, 'secondaryColor', event.target.value)} className="h-6 w-12 rounded border border-white/20 cursor-pointer" />
                           </td>
-                          <td className="p-2 text-center">
+                          <td className="p-2 text-center align-middle">
                             {team.active === false ? (
                               <span className="rounded-full border border-amber-300/50 bg-amber-500/20 px-2 py-0.5 text-[11px] font-semibold text-amber-100">Desactivado</span>
                             ) : (
                               <span className="rounded-full border border-emerald-300/50 bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-100">Activo</span>
                             )}
                           </td>
-                          <td className="p-2 flex gap-2 justify-center">
-                            <button type="button" title="Guardar cambios" disabled={isReadOnlySeason} onClick={() => void saveTeamEdit(team)} className="rounded p-1 hover:bg-primary-600/30 disabled:opacity-60"><EditIcon className="w-5 h-5 text-primary-300" /></button>
-                            <button type="button" title={team.active === false ? 'Reactivar' : 'Desactivar'} disabled={isReadOnlySeason} onClick={() => void toggleTeamActive(team, team.active === false)} className="rounded p-1 hover:bg-amber-600/30 disabled:opacity-60">
-                              {team.active === false ? <span className="text-emerald-400">&#8635;</span> : <span className="text-amber-400">&#10006;</span>}
-                            </button>
-                            <button type="button" title="Eliminar equipo" disabled={isReadOnlySeason} onClick={() => requestDeleteTeam(team)} className="rounded p-1 hover:bg-rose-600/30 disabled:opacity-60"><DeleteIcon className="w-5 h-5 text-rose-300" /></button>
+                          <td className="p-2 text-center align-middle">
+                            <div className="flex items-center justify-center gap-2 h-full">
+                              <button type="button" title={team.active === false ? 'Reactivar' : 'Desactivar'} disabled={isReadOnlySeason} onClick={() => void toggleTeamActive(team, team.active === false)} className="rounded p-1 hover:bg-amber-600/30 disabled:opacity-60 flex items-center justify-center">
+                                {team.active === false ? <span className="text-emerald-400">&#8635;</span> : <span className="text-amber-400">&#10006;</span>}
+                              </button>
+                              <button type="button" title="Actualizar" disabled={isReadOnlySeason} onClick={() => void saveTeamEdit(team)} className="rounded p-1 hover:bg-primary-600/30 disabled:opacity-60 flex items-center justify-center"><EditIcon className="w-5 h-5 text-primary-300" /></button>
+                              <button type="button" title="Eliminar" disabled={isReadOnlySeason} onClick={() => requestDeleteTeam(team)} className="rounded p-1 hover:bg-rose-600/30 disabled:opacity-60 flex items-center justify-center"><DeleteIcon className="w-5 h-5 text-rose-300" /></button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -2794,78 +2929,121 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     Ir a pestaña Carnet digital
                   </button>
 
-                  <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
-                    {playerPagination.pageItems.map((player) => {
-                      const key = `${selectedTeam.id}:${player.id}`
-                      const draft = playerEditById[key] ?? {
-                        name: player.name,
-                        nickname: player.nickname,
-                        age: player.age,
-                        number: player.number,
-                        position: player.position,
-                        registrationStatus: player.registrationStatus ?? 'registered',
-                        photoUrl: player.photoUrl ?? '',
-                      }
-
-                      return (
-                        <div key={player.id} className="rounded border border-white/10 bg-slate-800 p-2">
-                          <div className="mb-2 flex items-center gap-2">
-                            {draft.photoUrl ? (
-                              <img src={draft.photoUrl} alt={draft.name} className="h-8 w-8 rounded-full border border-white/20 object-cover" />
-                            ) : (
-                              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-[10px] text-slate-400">S/F</div>
-                            )}
-                            <p className="text-xs text-slate-300">{player.name} · Dorsal #{player.number} · {player.age} años</p>
-                          </div>
-
-                          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-7">
-                            <input value={draft.name} onChange={(event) => updatePlayerEdit(selectedTeam.id, player.id, { ...draft, name: event.target.value })} className="rounded border border-white/20 bg-slate-900 px-1 py-1 text-[11px] text-white" />
-                            <input value={draft.nickname} onChange={(event) => updatePlayerEdit(selectedTeam.id, player.id, { ...draft, nickname: event.target.value })} className="rounded border border-white/20 bg-slate-900 px-1 py-1 text-[11px] text-white" />
-                            <label className="rounded border border-white/20 bg-slate-900 px-1 py-1 text-[10px] text-amber-200">Edad
-                              <input type="number" value={draft.age} onChange={(event) => updatePlayerEdit(selectedTeam.id, player.id, { ...draft, age: Number(event.target.value) })} className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-1 py-1 text-[11px] text-white" />
-                            </label>
-                            <label className="rounded border border-white/20 bg-slate-900 px-1 py-1 text-[10px] text-cyan-200">Dorsal
-                              <input type="number" value={draft.number} onChange={(event) => updatePlayerEdit(selectedTeam.id, player.id, { ...draft, number: Number(event.target.value) })} className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-1 py-1 text-[11px] text-white" />
-                            </label>
-                            <select value={normalizePosition(draft.position)} onChange={(event) => updatePlayerEdit(selectedTeam.id, player.id, { ...draft, position: event.target.value })} className="rounded border border-white/20 bg-slate-900 px-1 py-1 text-[11px] text-white">
-                              {playerPositionOptions.map((position) => (
-                                <option key={position} value={position}>{position}</option>
-                              ))}
-                            </select>
-                            <select
-                              value={draft.registrationStatus}
-                              onChange={(event) =>
-                                updatePlayerEdit(selectedTeam.id, player.id, {
-                                  ...draft,
-                                  registrationStatus: event.target.value as 'pending' | 'registered',
-                                })
-                              }
-                              className="rounded border border-white/20 bg-slate-900 px-1 py-1 text-[11px] text-white"
-                            >
-                              <option value="pending">Pendiente</option>
-                              <option value="registered">Registro OK</option>
-                            </select>
-                            <label className="rounded border border-white/20 bg-slate-900 px-1 py-1 text-[11px] text-slate-200">Foto
-                              <input type="file" accept="image/*" className="mt-1 block w-full" onChange={async (event) => {
-                                const file = event.target.files?.[0]
-                                if (!file) return
-                                updatePlayerEdit(selectedTeam.id, player.id, {
-                                  ...draft,
-                                  photoUrl: await toDataUrl(file),
-                                })
-                              }} />
-                            </label>
-                          </div>
-                          <div className="mt-1 flex gap-2">
-                            <button type="button" disabled={isReadOnlySeason} onClick={() => void savePlayerEdit(selectedTeam.id, player.id, draft)} className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-1 text-[11px] font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60">Guardar</button>
-                            <button type="button" disabled={isReadOnlySeason} onClick={() => requestDeletePlayer(selectedTeam.id, player.id, player.name)} className="rounded border border-rose-300/50 bg-rose-600/20 px-2 py-1 text-[11px] font-semibold text-rose-100 disabled:cursor-not-allowed disabled:opacity-60">Eliminar</button>
-                          </div>
-                        </div>
-                      )
-                    })}
-                    {playerPagination.pageItems.length === 0 && (
-                      <p className="text-xs text-slate-400">No hay jugadores con los filtros actuales.</p>
-                    )}
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="min-w-full text-xs text-slate-200 border border-white/10 rounded-xl overflow-hidden">
+                      <thead className="bg-slate-800/80">
+                        <tr>
+                          <th className="p-2 text-center">Foto</th>
+                          <th className="p-2">Nombre</th>
+                          <th className="p-2">Apodo</th>
+                          <th className="p-2">Edad</th>
+                          <th className="p-2">Dorsal</th>
+                          <th className="p-2">Posición</th>
+                          <th className="p-2">Estado</th>
+                          <th className="p-2 text-center">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {playerPagination.pageItems.map((player) => {
+                          const key = `${selectedTeam.id}:${player.id}`
+                          // Usar el draft de edición si existe, si no, usar el draft de creación si coincide el id (jugador recién creado y aún no guardado en backend)
+                          let draft = playerEditById[key]
+                          if (!draft && playerDraftByTeam[selectedTeam.id]?.name === player.name && playerDraftByTeam[selectedTeam.id]?.number === player.number) {
+                            draft = playerDraftByTeam[selectedTeam.id]
+                          }
+                          if (!draft) {
+                            draft = {
+                              name: player.name,
+                              nickname: player.nickname,
+                              age: player.age,
+                              number: player.number,
+                              position: player.position,
+                              registrationStatus: player.registrationStatus ?? 'registered',
+                              photoUrl: player.photoUrl ?? '',
+                            }
+                          }
+                          return (
+                            <tr key={player.id} className="bg-slate-900/60">
+                              <td className="p-2 text-center align-middle">
+                                <label className="cursor-pointer">
+                                  {draft.photoUrl ? (
+                                    <img
+                                      src={draft.photoUrl}
+                                      alt={draft.name}
+                                      className="h-8 w-8 rounded-full border border-white/20 object-cover mx-auto"
+                                      onClick={() => document.getElementById(`player-photo-input-${player.id}`)?.click()}
+                                    />
+                                  ) : (
+                                    <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-[10px] text-slate-400 mx-auto bg-slate-800 cursor-pointer" onClick={() => document.getElementById(`player-photo-input-${player.id}`)?.click()}>S/F</div>
+                                  )}
+                                  <input
+                                    id={`player-photo-input-${player.id}`}
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={async (event) => {
+                                      const file = event.target.files?.[0]
+                                      if (!file) return
+                                      const photoUrl = await toDataUrl(file)
+                                      setPlayerEditById((current) => ({
+                                        ...current,
+                                        [`${selectedTeam.id}:${player.id}`]: {
+                                          ...draft,
+                                          photoUrl,
+                                        },
+                                      }))
+                                    }}
+                                  />
+                                </label>
+                              </td>
+                              <td className="p-2 align-middle">
+                                <input value={draft.name} onChange={(event) => updatePlayerEdit(selectedTeam.id, player.id, { ...draft, name: event.target.value })} className="w-full rounded border border-white/20 bg-slate-900 px-1 py-1 text-[11px] text-white" />
+                              </td>
+                              <td className="p-2 align-middle">
+                                <input value={draft.nickname} onChange={(event) => updatePlayerEdit(selectedTeam.id, player.id, { ...draft, nickname: event.target.value })} className="w-full rounded border border-white/20 bg-slate-900 px-1 py-1 text-[11px] text-white" />
+                              </td>
+                              <td className="p-2 align-middle">
+                                <input type="number" value={draft.age} onChange={(event) => updatePlayerEdit(selectedTeam.id, player.id, { ...draft, age: Number(event.target.value) })} className="w-full rounded border border-white/20 bg-slate-800 px-1 py-1 text-[11px] text-white" />
+                              </td>
+                              <td className="p-2 align-middle">
+                                <input type="number" value={draft.number} onChange={(event) => updatePlayerEdit(selectedTeam.id, player.id, { ...draft, number: Number(event.target.value) })} className="w-full rounded border border-white/20 bg-slate-800 px-1 py-1 text-[11px] text-white" />
+                              </td>
+                              <td className="p-2 align-middle">
+                                <select value={normalizePosition(draft.position)} onChange={(event) => updatePlayerEdit(selectedTeam.id, player.id, { ...draft, position: event.target.value })} className="w-full rounded border border-white/20 bg-slate-900 px-1 py-1 text-[11px] text-white">
+                                  {playerPositionOptions.map((position) => (
+                                    <option key={position} value={position}>{position}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="p-2 align-middle">
+                                <select
+                                  value={draft.registrationStatus}
+                                  onChange={(event) =>
+                                    updatePlayerEdit(selectedTeam.id, player.id, {
+                                      ...draft,
+                                      registrationStatus: event.target.value as 'pending' | 'registered',
+                                    })
+                                  }
+                                  className="w-full rounded border border-white/20 bg-slate-900 px-1 py-1 text-[11px] text-white"
+                                >
+                                  <option value="pending">Pendiente</option>
+                                  <option value="registered">Registro OK</option>
+                                </select>
+                              </td>
+                              <td className="p-2 flex gap-2 justify-center align-middle">
+                                <div className="flex items-center justify-center gap-2 h-full">
+                                  <button type="button" disabled={isReadOnlySeason} onClick={() => void savePlayerEdit(selectedTeam.id, player.id, draft)} className="rounded p-1 hover:bg-primary-600/30 disabled:opacity-60 flex items-center justify-center" title="Guardar"><EditIcon className="w-5 h-5 text-primary-300" /></button>
+                                  <button type="button" disabled={isReadOnlySeason} onClick={() => requestDeletePlayer(selectedTeam.id, player.id, player.name)} className="rounded p-1 hover:bg-rose-600/30 disabled:opacity-60 flex items-center justify-center" title="Eliminar"><DeleteIcon className="w-5 h-5 text-rose-300" /></button>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                        {playerPagination.pageItems.length === 0 && (
+                          <tr><td colSpan={8} className="text-xs text-slate-400 p-2 text-center">No hay jugadores con los filtros actuales.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                   {playerPagination.totalPages > 1 && (
                     <div className="mt-2 flex items-center justify-end gap-2 text-xs text-slate-300">
