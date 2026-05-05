@@ -71,6 +71,7 @@ export interface LiveEvent {
   type:
     | 'shot'
     | 'goal'
+    | 'own_goal'
     | 'penalty_goal'
     | 'penalty_miss'
     | 'yellow'

@@ -1132,6 +1132,7 @@ function App() {
     const labels: Record<string, string> = {
       shot: 'Remate',
       goal: 'Gol',
+      own_goal: 'Autogol',
       penalty_goal: 'Gol de penal',
       penalty_miss: 'Penal fallado',
       assist: 'Asistencia',
@@ -1186,7 +1187,7 @@ function App() {
     (
       teamId: string,
       playerId: string | null,
-      eventType: 'shot' | 'goal' | 'penalty_goal' | 'penalty_miss' | 'yellow' | 'red' | 'assist' | 'substitution',
+      eventType: 'shot' | 'goal' | 'own_goal' | 'penalty_goal' | 'penalty_miss' | 'yellow' | 'red' | 'assist' | 'substitution',
     ) => {
       if (eventType !== 'yellow' || !playerId) {
         return { type: eventType as typeof eventType | 'double_yellow', isDoubleYellow: false }
@@ -1892,7 +1893,7 @@ function App() {
     }
   }
 
-  const sendEvent = async (eventType: 'shot' | 'goal' | 'penalty_goal' | 'penalty_miss' | 'yellow' | 'red' | 'assist') => {
+  const sendEvent = async (eventType: 'shot' | 'goal' | 'own_goal' | 'penalty_goal' | 'penalty_miss' | 'yellow' | 'red' | 'assist') => {
     if (!selectedTeam) return
     if (!canRegisterLiveEvents) {
       applyActionFeedback(false, '', 'Debes iniciar el partido para registrar eventos')
@@ -1909,6 +1910,7 @@ function App() {
     const feedbackMap: Record<string, string> = {
       shot: 'Remate',
       goal: 'Gol',
+      own_goal: 'Autogol',
       penalty_goal: 'Gol de penal',
       penalty_miss: 'Penal fallado',
       assist: 'Asistencia',
@@ -1922,7 +1924,7 @@ function App() {
   const sendEventForStarter = async (
     teamId: string,
     playerId: string,
-    eventType: 'goal' | 'penalty_goal' | 'penalty_miss' | 'assist' | 'yellow' | 'red',
+    eventType: 'goal' | 'own_goal' | 'penalty_goal' | 'penalty_miss' | 'assist' | 'yellow' | 'red',
   ) => {
     if (!canRegisterLiveEvents) {
       applyActionFeedback(false, '', 'Debes iniciar el partido para registrar eventos')
@@ -1938,6 +1940,7 @@ function App() {
     const labels: Record<string, string> = {
       shot: 'Remate',
       goal: 'Gol',
+      own_goal: 'Autogol',
       penalty_goal: 'Gol de penal',
       penalty_miss: 'Penal fallado',
       assist: 'Asistencia',
@@ -1974,6 +1977,28 @@ function App() {
     const response = await apiService.registerLiveEvent(liveMatch?.id ?? '', selectedTeam.id, eventType, null, staffRole)
     const cardLabel = eventType === 'staff_yellow' ? 'TA' : 'TR'
     applyActionFeedback(response.ok, `${cardLabel} para ${staffRoleLabel(staffRole)} registrada`, response.ok ? '' : response.message)
+  }
+
+  const undoLastLiveEvent = async () => {
+    if (!liveMatch) return
+    if (liveMatch.events.length === 0) {
+      applyActionFeedback(false, '', 'No hay eventos para anular')
+      return
+    }
+
+    const response = await apiService.undoLastLiveEvent(liveMatch.id)
+    if (response.ok) {
+      setLiveMatch(response.data)
+      const activeTeam =
+        response.data.homeTeam.id === selectedTeamId || response.data.awayTeam.id === selectedTeamId
+          ? (response.data.homeTeam.id === selectedTeamId ? response.data.homeTeam : response.data.awayTeam)
+          : response.data.homeTeam
+      setSelectedTeamId(activeTeam.id)
+      setLineupStarters(activeTeam.starters)
+      setLineupSubstitutes(activeTeam.substitutes)
+    }
+
+    applyActionFeedback(response.ok, 'Último evento anulado', response.ok ? '' : response.message)
   }
 
   const substitutionOutOptions = useMemo(() => {
@@ -3706,17 +3731,20 @@ function App() {
       },
       players,
       goals: liveMatch.events
-        .filter((event) => event.type === 'goal' || event.type === 'penalty_goal')
+        .filter((event) => event.type === 'goal' || event.type === 'penalty_goal' || event.type === 'own_goal')
         .map((event) => {
-          const isHome = event.teamId === liveMatch.homeTeam.id
-          const team = isHome ? liveMatch.homeTeam : liveMatch.awayTeam
-          const player = event.playerId ? team.players.find((item) => item.id === event.playerId) : null
+          const actedByHome = event.teamId === liveMatch.homeTeam.id
+          const actingTeam = actedByHome ? liveMatch.homeTeam : liveMatch.awayTeam
+          const scoringTeam = event.type === 'own_goal'
+            ? (actedByHome ? liveMatch.awayTeam : liveMatch.homeTeam)
+            : actingTeam
+          const player = event.playerId ? actingTeam.players.find((item) => item.id === event.playerId) : null
 
           return {
             minute: event.minute,
             clock: event.clock,
-            teamName: team.name,
-            playerName: player?.name ?? 'Sin jugador',
+            teamName: scoringTeam.name,
+            playerName: player ? `${player.name}${event.type === 'own_goal' ? ' (AG)' : ''}` : 'Sin jugador',
           }
         }),
       events: liveMatch.events.map((event) => {
@@ -6159,6 +6187,7 @@ function App() {
                           {hoveredStarterId === id && !isRedCarded && (
                             <div className="mt-1 grid grid-cols-3 gap-1 sm:grid-cols-6">
                               <button type="button" disabled={!canRegisterLiveEvents} onClick={() => void sendEventForStarter(selectedTeam.id, id, 'goal')} className="rounded bg-emerald-700 px-1 py-1 text-[10px] text-white disabled:opacity-50">Gol</button>
+                              <button type="button" disabled={!canRegisterLiveEvents} onClick={() => void sendEventForStarter(selectedTeam.id, id, 'own_goal')} className="rounded bg-orange-700 px-1 py-1 text-[10px] text-white disabled:opacity-50">AG</button>
                               <button type="button" disabled={!canRegisterLiveEvents} onClick={() => void sendEventForStarter(selectedTeam.id, id, 'penalty_goal')} className="rounded bg-emerald-900 px-1 py-1 text-[10px] text-white disabled:opacity-50">Pen</button>
                               <button type="button" disabled={!canRegisterLiveEvents} onClick={() => void sendEventForStarter(selectedTeam.id, id, 'penalty_miss')} className="rounded bg-slate-700 px-1 py-1 text-[10px] text-white disabled:opacity-50">Pen F</button>
                               <button type="button" disabled={!canRegisterLiveEvents} onClick={() => void sendEventForStarter(selectedTeam.id, id, 'assist')} className="rounded bg-blue-700 px-1 py-1 text-[10px] text-white disabled:opacity-50">Asis</button>
@@ -6285,6 +6314,7 @@ function App() {
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
                     <button type="button" disabled={!canRegisterLiveEvents} onClick={() => sendEvent('shot')} className="rounded bg-slate-700 px-2 py-2 text-xs text-white disabled:opacity-50">Remate</button>
                     <button type="button" disabled={!canRegisterLiveEvents} onClick={() => sendEvent('goal')} className="rounded bg-emerald-600 px-2 py-2 text-xs text-white disabled:opacity-50">Gol</button>
+                    <button type="button" disabled={!canRegisterLiveEvents} onClick={() => sendEvent('own_goal')} className="rounded bg-orange-700 px-2 py-2 text-xs text-white disabled:opacity-50">Autogol</button>
                     <button type="button" disabled={!canRegisterLiveEvents} onClick={() => sendEvent('penalty_goal')} className="rounded bg-emerald-900 px-2 py-2 text-xs text-white disabled:opacity-50">Penal</button>
                     <button type="button" disabled={!canRegisterLiveEvents} onClick={() => sendEvent('penalty_miss')} className="rounded bg-slate-600 px-2 py-2 text-xs text-white disabled:opacity-50">Pen F</button>
                     <button type="button" disabled={!canRegisterLiveEvents} onClick={() => sendEvent('assist')} className="rounded bg-blue-600 px-2 py-2 text-xs text-white disabled:opacity-50">Asis</button>
@@ -6412,7 +6442,17 @@ function App() {
               </div>
 
               <div className="mt-4 rounded-xl border border-white/10 bg-slate-900/60 p-3">
-                <p className="mb-2 text-sm font-semibold text-white">Últimos eventos</p>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-white">Últimos eventos</p>
+                  <button
+                    type="button"
+                    onClick={() => void undoLastLiveEvent()}
+                    disabled={liveMatch.events.length === 0}
+                    className="rounded border border-amber-300/30 bg-amber-500/15 px-2 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Anular último evento
+                  </button>
+                </div>
                 <div className="max-h-64 space-y-2 overflow-auto pr-1 text-xs">
                   {liveMatch.events.slice(0, 15).map((event) => {
                     const team = event.teamId === liveMatch.homeTeam.id ? liveMatch.homeTeam : liveMatch.awayTeam

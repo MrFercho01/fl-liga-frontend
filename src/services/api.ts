@@ -626,7 +626,7 @@ export const apiService = {
         finalMinute: number
         events: Array<{
           clock: string
-          type: 'shot' | 'goal' | 'penalty_goal' | 'penalty_miss' | 'yellow' | 'red' | 'double_yellow' | 'assist' | 'substitution'
+          type: 'shot' | 'goal' | 'own_goal' | 'penalty_goal' | 'penalty_miss' | 'yellow' | 'red' | 'double_yellow' | 'assist' | 'substitution'
           teamName: string
           playerName: string
           substitutionInPlayerName?: string
@@ -705,7 +705,7 @@ export const apiService = {
             finalMinute: number
             events: Array<{
               clock: string
-              type: 'shot' | 'goal' | 'penalty_goal' | 'penalty_miss' | 'yellow' | 'red' | 'double_yellow' | 'assist' | 'substitution'
+              type: 'shot' | 'goal' | 'own_goal' | 'penalty_goal' | 'penalty_miss' | 'yellow' | 'red' | 'double_yellow' | 'assist' | 'substitution'
               teamName: string
               playerName: string
               substitutionInPlayerName?: string
@@ -844,6 +844,7 @@ export const apiService = {
     type:
       | 'shot'
       | 'goal'
+      | 'own_goal'
       | 'penalty_goal'
       | 'penalty_miss'
       | 'yellow'
@@ -880,6 +881,29 @@ export const apiService = {
       }
 
       return { ok: true, data: responsePayload.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
+  async undoLastLiveEvent(matchId: string): Promise<ApiResponse<LiveMatch>> {
+    try {
+      const response = await apiFetch(`${apiBaseUrl}/api/admin/live/events/undo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchId }),
+      })
+
+      const payload = (await response.json()) as { message?: string; data?: LiveMatch }
+      if (!response.ok) {
+        return { ok: false, message: payload.message ?? 'No se pudo anular el evento' }
+      }
+
+      if (!payload.data) {
+        return { ok: false, message: 'Respuesta inválida del servidor' }
+      }
+
+      return { ok: true, data: payload.data }
     } catch {
       return { ok: false, message: 'Sin conexión con backend' }
     }

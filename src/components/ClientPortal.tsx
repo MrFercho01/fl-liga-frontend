@@ -517,6 +517,7 @@ const buildTeamFromLiveOrRoster = (
 const eventLabel: Record<LiveEvent['type'], string> = {
   shot: 'Remate',
   goal: 'Gol',
+  own_goal: 'Autogol',
   penalty_goal: 'Gol de penal',
   penalty_miss: 'Penal fallado',
   yellow: 'TA',

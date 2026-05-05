@@ -254,6 +254,7 @@ export interface PlayedMatchRecord {
     type:
       | 'shot'
       | 'goal'
+      | 'own_goal'
       | 'penalty_goal'
       | 'penalty_miss'
       | 'yellow'
