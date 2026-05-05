@@ -409,6 +409,7 @@ function App() {
   const [loginMode, setLoginMode] = useState<'super_admin' | 'client_admin'>('client_admin')
   const [superAdminUnlocked, setSuperAdminUnlocked] = useState(false)
   const superAdminHoldTimerRef = useRef<number | null>(null)
+  const adminSocketRef = useRef<ReturnType<typeof io> | null>(null)
   const [clientAccessTokenInput, setClientAccessTokenInput] = useState('')
   const [clientTokenValidation, setClientTokenValidation] = useState<ClientAccessValidation | null>(null)
   const [clientTokenValidated, setClientTokenValidated] = useState(false)
@@ -596,11 +597,14 @@ function App() {
       transports: ['websocket'],
     })
 
+    adminSocketRef.current = socket
+
     socket.on('live:update', (snapshot: LiveMatch) => {
       setLiveMatch(snapshot)
     })
 
     return () => {
+      adminSocketRef.current = null
       socket.disconnect()
     }
   }, [])
@@ -3585,6 +3589,8 @@ function App() {
     setSubstitutionTimelineByTeam({})
     setSelectedMvpPlayerId('')
     setSecondHalfStarted(false)
+    // Unirse al room del partido para recibir live:update en tiempo real
+    adminSocketRef.current?.emit('join:match', selectedPendingMatch.id)
     applyActionFeedback(true, 'Partido cargado para iniciar en vivo', '')
   }
 
