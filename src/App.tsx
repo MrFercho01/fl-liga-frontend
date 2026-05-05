@@ -875,6 +875,25 @@ function App() {
     return liveMatch.homeTeam
   }, [liveMatch, selectedTeamId])
 
+  const applyLiveSnapshotToAdmin = useCallback((snapshot: LiveMatch) => {
+    setLiveMatch(snapshot)
+    setAdminLiveMatches((current) => {
+      const next = current.filter((item) => item.id !== snapshot.id)
+      next.unshift(snapshot)
+      return next
+    })
+
+    const activeTeam =
+      snapshot.homeTeam.id === selectedTeamId || snapshot.awayTeam.id === selectedTeamId
+        ? (snapshot.homeTeam.id === selectedTeamId ? snapshot.homeTeam : snapshot.awayTeam)
+        : snapshot.homeTeam
+
+    setSelectedTeamId(activeTeam.id)
+    setLineupStarters(activeTeam.starters)
+    setLineupSubstitutes(activeTeam.substitutes)
+    setSettingsDraft(snapshot.settings)
+  }, [selectedTeamId])
+
   useEffect(() => {
     if (!liveMatch) return
     setLiveTimerAnchor({
@@ -1924,6 +1943,9 @@ function App() {
     const playerId = selectedPlayerId || null
     const resolved = resolveEventTypeForCard(selectedTeam.id, playerId, eventType)
     const response = await apiService.registerLiveEvent(liveMatch?.id ?? '', selectedTeam.id, resolved.type, playerId)
+    if (response.ok) {
+      applyLiveSnapshotToAdmin(response.data)
+    }
     const feedbackMap: Record<string, string> = {
       shot: 'Remate',
       goal: 'Gol',
@@ -1954,6 +1976,9 @@ function App() {
 
     const resolved = resolveEventTypeForCard(teamId, playerId, eventType)
     const response = await apiService.registerLiveEvent(liveMatch?.id ?? '', teamId, resolved.type, playerId)
+    if (response.ok) {
+      applyLiveSnapshotToAdmin(response.data)
+    }
     const labels: Record<string, string> = {
       shot: 'Remate',
       goal: 'Gol',
@@ -1992,6 +2017,9 @@ function App() {
     }
 
     const response = await apiService.registerLiveEvent(liveMatch?.id ?? '', selectedTeam.id, eventType, null, staffRole)
+    if (response.ok) {
+      applyLiveSnapshotToAdmin(response.data)
+    }
     const cardLabel = eventType === 'staff_yellow' ? 'TA' : 'TR'
     applyActionFeedback(response.ok, `${cardLabel} para ${staffRoleLabel(staffRole)} registrada`, response.ok ? '' : response.message)
   }
@@ -2007,14 +2035,7 @@ function App() {
     try {
       const response = await apiService.deleteLiveEvent(liveMatch.id, eventId)
       if (response.ok) {
-        setLiveMatch(response.data)
-        const activeTeam =
-          response.data.homeTeam.id === selectedTeamId || response.data.awayTeam.id === selectedTeamId
-            ? (response.data.homeTeam.id === selectedTeamId ? response.data.homeTeam : response.data.awayTeam)
-            : response.data.homeTeam
-        setSelectedTeamId(activeTeam.id)
-        setLineupStarters(activeTeam.starters)
-        setLineupSubstitutes(activeTeam.substitutes)
+        applyLiveSnapshotToAdmin(response.data)
       }
 
       applyActionFeedback(response.ok, 'Evento eliminado', response.ok ? '' : response.message)
@@ -2101,6 +2122,8 @@ function App() {
       applyActionFeedback(false, '', eventResponse.message)
       return
     }
+
+    applyLiveSnapshotToAdmin(eventResponse.data)
 
     setLineupStarters(nextStarters)
     setLineupSubstitutes(nextSubstitutes)

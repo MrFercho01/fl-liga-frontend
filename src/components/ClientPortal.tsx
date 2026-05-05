@@ -689,6 +689,8 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     Record<string, { home: string[]; away: string[] }>
   >({})
   const previousEventIdsRef = useRef<string[]>([])
+  const previousTrackedMatchIdRef = useRef<string>('')
+  const previousLivePhaseRef = useRef<string>('')
   const mvpPopupShownMatchIdsRef = useRef<Set<string>>(new Set())
   const [loadingLeagues, setLoadingLeagues] = useState(true)
   const [loadingFixture, setLoadingFixture] = useState(false)
@@ -867,6 +869,64 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     setVisitorAliasDraft('')
     window.localStorage.setItem(getPublicAliasStorageKey(clientId), '')
   }, [clientId])
+
+  const requestNotificationsPermission = useCallback(async (): Promise<boolean> => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setNotificationsEnabled(false)
+      return false
+    }
+
+    if (window.Notification.permission === 'granted') {
+      setNotificationsEnabled(true)
+      return true
+    }
+
+    if (window.Notification.permission === 'denied') {
+      setNotificationsEnabled(false)
+      return false
+    }
+
+    try {
+      const permission = await window.Notification.requestPermission()
+      const granted = permission === 'granted'
+      setNotificationsEnabled(granted)
+      return granted
+    } catch {
+      setNotificationsEnabled(false)
+      return false
+    }
+  }, [])
+
+  const showFollowNotification = useCallback(async (title: string, body: string, tag: string) => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return
+    if (window.Notification.permission !== 'granted') return
+
+    const url = window.location.href
+    try {
+      if ('serviceWorker' in navigator) {
+        const registration = await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise<ServiceWorkerRegistration | null>((resolve) => {
+            window.setTimeout(() => resolve(null), 1200)
+          }),
+        ])
+
+        if (registration && typeof registration.showNotification === 'function') {
+          await registration.showNotification(title, {
+            body,
+            tag,
+            data: { url },
+          })
+          return
+        }
+      }
+
+      const notification = new window.Notification(title, { body, tag })
+      window.setTimeout(() => notification.close(), 7000)
+    } catch {
+      // Ignora fallos del navegador/dispositivo al emitir la notificación
+    }
+  }, [])
 
   useEffect(() => {
     let disposed = false
@@ -1490,12 +1550,11 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     const previousLiked = matchLikeState.likedByCurrentUser
     const nextLiked = !previousLiked
 
-    if (nextLiked && typeof window !== 'undefined' && 'Notification' in window && window.Notification.permission === 'default') {
-      try {
-        const permission = await window.Notification.requestPermission()
-        setNotificationsEnabled(permission === 'granted')
-      } catch {
-        setNotificationsEnabled(false)
+    if (nextLiked) {
+      const granted = await requestNotificationsPermission()
+      if (granted) {
+        const teamsLabel = `Partido ${selectedMatch.id}`
+        void showFollowNotification('🔔 Seguimiento activado', teamsLabel, `follow-enabled-${selectedMatch.id}`)
       }
     } else if (typeof window !== 'undefined' && 'Notification' in window) {
       setNotificationsEnabled(window.Notification.permission === 'granted')
@@ -1533,7 +1592,35 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     }
 
     setUpdatingMatchLike(false)
-  }, [clientId, fixturePayload, matchLikeState.likedByCurrentUser, selectedMatch, updatingMatchLike])
+  }, [
+    clientId,
+    fixturePayload,
+    matchLikeState.likedByCurrentUser,
+    requestNotificationsPermission,
+    selectedMatch,
+    showFollowNotification,
+    updatingMatchLike,
+  ])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setNotificationsEnabled(false)
+      return
+    }
+
+    const syncPermission = () => {
+      setNotificationsEnabled(window.Notification.permission === 'granted')
+    }
+
+    syncPermission()
+    window.addEventListener('focus', syncPermission)
+    document.addEventListener('visibilitychange', syncPermission)
+
+    return () => {
+      window.removeEventListener('focus', syncPermission)
+      document.removeEventListener('visibilitychange', syncPermission)
+    }
+  }, [])
 
 
   const selectedMatchMvp = useMemo(() => {
@@ -2090,15 +2177,22 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
 
   useEffect(() => {
     const currentIds = events.map((event) => event.id)
+    const trackedMatchId = selectedMatch?.id ?? ''
+    if (previousTrackedMatchIdRef.current !== trackedMatchId) {
+      previousTrackedMatchIdRef.current = trackedMatchId
+      previousEventIdsRef.current = currentIds
+    }
+
     const previousSet = new Set(previousEventIdsRef.current)
     const incomingIds = currentIds.filter((id) => !previousSet.has(id))
     const hasPrevious = previousEventIdsRef.current.length > 0
     const incomingEvents = events.filter((event) => incomingIds.includes(event.id))
-    const hasIncomingGoal = incomingEvents.some((event) => event.type === 'goal' || event.type === 'penalty_goal')
-    const incomingGoalEvents = incomingEvents.filter((event) => event.type === 'goal' || event.type === 'penalty_goal')
+    const hasIncomingGoal = incomingEvents.some((event) => event.type === 'goal' || event.type === 'penalty_goal' || event.type === 'own_goal')
+    const incomingGoalEvents = incomingEvents.filter((event) => event.type === 'goal' || event.type === 'penalty_goal' || event.type === 'own_goal')
     const hasIncomingPenaltyMiss = incomingEvents.some((event) => event.type === 'penalty_miss')
     const highlightTypes = new Set<LiveEvent['type']>([
       'goal',
+      'own_goal',
       'penalty_goal',
       'penalty_miss',
       'yellow',
@@ -2132,29 +2226,15 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
           playGoalBeep()
         }
 
-        if (
-          matchLikeState.likedByCurrentUser
-          && selectedMatch
-          && typeof window !== 'undefined'
-          && 'Notification' in window
-          && window.Notification.permission === 'granted'
-        ) {
+        if (matchLikeState.likedByCurrentUser && selectedMatch) {
           const lastGoalEvent = incomingGoalEvents[incomingGoalEvents.length - 1]
           const scoreText = liveForSelected ? `${liveForSelected.homeTeam.stats.goals} - ${liveForSelected.awayTeam.stats.goals}` : ''
-          const title = `⚽ Gol en ${selectedMatch.id}`
+          const title = lastGoalEvent?.type === 'own_goal' ? '⚽ Autogol' : lastGoalEvent?.type === 'penalty_goal' ? '⚽ Gol de penal' : '⚽ Gol'
           const body = lastGoalEvent
             ? `${lastGoalEvent.label}${scoreText ? ` · Marcador ${scoreText}` : ''}`
             : `Se registró un gol en el partido seguido${scoreText ? ` · ${scoreText}` : ''}`
 
-          try {
-            const notification = new window.Notification(title, {
-              body,
-              tag: `goal-${selectedMatch.id}`,
-            })
-            window.setTimeout(() => notification.close(), 7000)
-          } catch {
-            // Ignora fallos de notificación del navegador/dispositivo
-          }
+          void showFollowNotification(title, body, `goal-${selectedMatch.id}`)
         }
       }
 
@@ -2163,6 +2243,25 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
         penaltyMissTimer = window.setTimeout(() => {
           setPenaltyMissAlertActive(false)
         }, 1700)
+
+        if (matchLikeState.likedByCurrentUser && selectedMatch) {
+          const lastPenaltyMiss = incomingEvents.filter((event) => event.type === 'penalty_miss').slice(-1)[0]
+          if (lastPenaltyMiss) {
+            void showFollowNotification('❌ Penal fallado', lastPenaltyMiss.label, `penalty-miss-${selectedMatch.id}`)
+          }
+        }
+      }
+
+      if (hasPrevious && matchLikeState.likedByCurrentUser && selectedMatch) {
+        const cardEvents = incomingEvents.filter((event) => ['yellow', 'red', 'double_yellow', 'staff_yellow', 'staff_red'].includes(event.type))
+        cardEvents.forEach((event, index) => {
+          const title = event.type === 'yellow' || event.type === 'staff_yellow'
+            ? '🟨 Tarjeta amarilla'
+            : event.type === 'double_yellow'
+              ? '🟥 Doble amarilla'
+              : '🟥 Tarjeta roja'
+          void showFollowNotification(title, event.label, `card-${selectedMatch.id}-${event.id}-${index}`)
+        })
       }
 
       previousEventIdsRef.current = currentIds
@@ -2186,7 +2285,44 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     liveForSelected?.status,
     matchLikeState.likedByCurrentUser,
     selectedMatch,
+    showFollowNotification,
   ])
+
+  useEffect(() => {
+    if (!selectedMatch || !liveForSelected) {
+      previousLivePhaseRef.current = ''
+      return
+    }
+
+    const currentPhase = liveForSelected.status === 'finished'
+      ? 'finished'
+      : liveForSelected.status === 'live'
+        ? (liveForSelected.timer.running ? 'running' : liveForSelected.timer.elapsedSeconds > 0 ? 'break' : 'scheduled')
+        : 'scheduled'
+
+    const sameMatch = previousTrackedMatchIdRef.current === selectedMatch.id
+    const previousPhase = sameMatch ? previousLivePhaseRef.current : ''
+
+    if (sameMatch && previousPhase && previousPhase !== currentPhase && matchLikeState.likedByCurrentUser) {
+      const label = `${liveForSelected.homeTeam.name} vs ${liveForSelected.awayTeam.name}`
+      if (previousPhase === 'scheduled' && currentPhase === 'running') {
+        void showFollowNotification('🟢 Inicia el partido', label, `phase-start-${selectedMatch.id}`)
+      }
+      if (previousPhase === 'running' && currentPhase === 'break') {
+        void showFollowNotification('⏸️ Termina el primer tiempo', label, `phase-halftime-${selectedMatch.id}`)
+      }
+      if (previousPhase === 'break' && currentPhase === 'running') {
+        void showFollowNotification('▶️ Inicia el segundo tiempo', label, `phase-second-half-${selectedMatch.id}`)
+      }
+      if (previousPhase !== 'finished' && currentPhase === 'finished') {
+        const score = `${liveForSelected.homeTeam.stats.goals} - ${liveForSelected.awayTeam.stats.goals}`
+        void showFollowNotification('🏁 Finaliza el partido', `${label} · Marcador final ${score}`, `phase-finished-${selectedMatch.id}`)
+      }
+    }
+
+    previousTrackedMatchIdRef.current = selectedMatch.id
+    previousLivePhaseRef.current = currentPhase
+  }, [liveForSelected, matchLikeState.likedByCurrentUser, selectedMatch, showFollowNotification])
 
   useEffect(() => {
     if (!selectedMatch || !liveForSelected) return
