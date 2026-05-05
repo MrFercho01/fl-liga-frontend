@@ -2646,9 +2646,9 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                       ).length
 
                       const isPostponed = !isLive && !isBreak && !isFinished && match.status === 'postponed'
-                      const statusLabel = isLive ? 'En juego' : isBreak ? 'Descanso' : isFinished ? 'Finalizado' : isPostponed ? 'Postergado' : 'Por jugar'
+                      const statusLabel = isLive ? 'EN JUEGO AHORA' : isBreak ? 'Descanso' : isFinished ? 'Finalizado' : isPostponed ? 'Postergado' : 'Por jugar'
                       const statusClassName = isLive
-                        ? 'border-rose-300/50 bg-rose-500/20 text-rose-100'
+                        ? 'border-rose-200/70 bg-rose-500/30 text-rose-50 shadow-lg shadow-rose-900/40 animate-[liveBadgePulse_1.7s_ease-in-out_infinite]'
                         : isBreak
                           ? 'border-amber-300/50 bg-amber-500/20 text-amber-100'
                         : isFinished
@@ -2671,7 +2671,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                               <TeamBadge logoUrl={awayTeam?.logoUrl} name={awayTeam?.name ?? 'Visitante'} />
                             </div>
                             <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${statusClassName}`}>
-                              {isLive && <span className="h-2 w-2 rounded-full bg-rose-300 animate-pulse" />}
+                              {isLive && <span className="h-2 w-2 rounded-full bg-rose-100 animate-ping" />}
                               {isBreak && <span className="h-2 w-2 rounded-full bg-amber-300" />}
                               {statusLabel}
                             </span>
@@ -3616,6 +3616,18 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
           100% {
             opacity: 0;
             transform: translateY(-16px) scale(1.25);
+          }
+        }
+
+        @keyframes liveBadgePulse {
+          0%,
+          100% {
+            transform: translateY(0) scale(1);
+            box-shadow: 0 0 0 rgba(244, 63, 94, 0);
+          }
+          50% {
+            transform: translateY(-0.5px) scale(1.02);
+            box-shadow: 0 0 0 6px rgba(244, 63, 94, 0.2);
           }
         }
       `}</style>
