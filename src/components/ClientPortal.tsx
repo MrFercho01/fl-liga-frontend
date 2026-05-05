@@ -648,7 +648,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   const [selectedMatchId, setSelectedMatchId] = useState('')
   const [fixturePayload, setFixturePayload] = useState<PublicFixturePayload | null>(null)
   const [liveMatch, setLiveMatch] = useState<LiveMatch | null>(null)
-  const [_liveMatches, setLiveMatches] = useState<LiveMatch[]>([])
+  const [liveMatches, setLiveMatches] = useState<LiveMatch[]>([])
   const [homeLogoPalette, setHomeLogoPalette] = useState<{ logoUrl: string; palette: TeamPalette | null } | null>(null)
   const [awayLogoPalette, setAwayLogoPalette] = useState<{ logoUrl: string; palette: TeamPalette | null } | null>(null)
   const [clockNowMs, setClockNowMs] = useState(() => Date.now())
@@ -1096,8 +1096,19 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   }, [fixturePayload])
 
   const matchesByRound = useMemo(
-    () => scheduledMatches.filter((match) => match.round === selectedRound),
-    [scheduledMatches, selectedRound],
+    () => {
+      const filtered = scheduledMatches.filter((match) => match.round === selectedRound)
+      return filtered.sort((left, right) => {
+        const leftLive = liveMatches.some((item) => item.id === left.id && item.status === 'live')
+        const rightLive = liveMatches.some((item) => item.id === right.id && item.status === 'live')
+        if (leftLive !== rightLive) return leftLive ? -1 : 1
+
+        const leftTime = left.scheduledAt ? new Date(left.scheduledAt).getTime() : Number.POSITIVE_INFINITY
+        const rightTime = right.scheduledAt ? new Date(right.scheduledAt).getTime() : Number.POSITIVE_INFINITY
+        return leftTime - rightTime
+      })
+    },
+    [liveMatches, scheduledMatches, selectedRound],
   )
 
   const selectedRoundAward = useMemo(() => {
@@ -2567,33 +2578,41 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                       const homeTeam = teamMap.get(match.homeTeamId)
                       const awayTeam = teamMap.get(match.awayTeamId)
                       const history = resolvePlayedHistory(match)
+                      const referencedLiveMatch =
+                        liveMatches.find((item) => item.id === match.id)
+                        ?? liveMatches.find(
+                          (item) =>
+                            (item.homeTeam.id === match.homeTeamId && item.awayTeam.id === match.awayTeamId)
+                            || (item.homeTeam.id === match.awayTeamId && item.awayTeam.id === match.homeTeamId),
+                        )
+
                       const isLiveDirect = Boolean(
-                        liveMatch
-                        && liveMatch.homeTeam.id === match.homeTeamId
-                        && liveMatch.awayTeam.id === match.awayTeamId,
+                        referencedLiveMatch
+                        && referencedLiveMatch.homeTeam.id === match.homeTeamId
+                        && referencedLiveMatch.awayTeam.id === match.awayTeamId,
                       )
                       const isLiveReverse = Boolean(
-                        liveMatch
-                        && liveMatch.homeTeam.id === match.awayTeamId
-                        && liveMatch.awayTeam.id === match.homeTeamId,
+                        referencedLiveMatch
+                        && referencedLiveMatch.homeTeam.id === match.awayTeamId
+                        && referencedLiveMatch.awayTeam.id === match.homeTeamId,
                       )
-                      const hasLiveReference = isLiveDirect || isLiveReverse
+                      const hasLiveReference = Boolean(referencedLiveMatch) && (isLiveDirect || isLiveReverse)
                       const isBreak = Boolean(
-                        liveMatch
-                        && liveMatch.status === 'live'
+                        referencedLiveMatch
+                        && referencedLiveMatch.status === 'live'
                         && hasLiveReference
-                        && !liveMatch.timer.running
-                        && liveMatch.timer.elapsedSeconds > 0,
+                        && !referencedLiveMatch.timer.running
+                        && referencedLiveMatch.timer.elapsedSeconds > 0,
                       )
-                      const isLive = Boolean(liveMatch && liveMatch.status === 'live' && hasLiveReference && !isBreak)
-                      const isLiveMarkedFinished = Boolean(liveMatch && liveMatch.status === 'finished' && hasLiveReference)
+                      const isLive = Boolean(referencedLiveMatch && referencedLiveMatch.status === 'live' && hasLiveReference && !isBreak)
+                      const isLiveMarkedFinished = Boolean(referencedLiveMatch && referencedLiveMatch.status === 'finished' && hasLiveReference)
                       const isFinished = Boolean(history) || isLiveMarkedFinished
 
                       const liveHomeGoals = hasLiveReference
-                        ? (isLiveDirect ? liveMatch?.homeTeam.stats.goals ?? 0 : liveMatch?.awayTeam.stats.goals ?? 0)
+                        ? (isLiveDirect ? referencedLiveMatch?.homeTeam.stats.goals ?? 0 : referencedLiveMatch?.awayTeam.stats.goals ?? 0)
                         : 0
                       const liveAwayGoals = hasLiveReference
-                        ? (isLiveDirect ? liveMatch?.awayTeam.stats.goals ?? 0 : liveMatch?.homeTeam.stats.goals ?? 0)
+                        ? (isLiveDirect ? referencedLiveMatch?.awayTeam.stats.goals ?? 0 : referencedLiveMatch?.homeTeam.stats.goals ?? 0)
                         : 0
 
                       const homeGoals = history ? (history.reverse ? history.record.awayGoals : history.record.homeGoals) : 0

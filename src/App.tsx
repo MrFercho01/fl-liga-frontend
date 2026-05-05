@@ -356,6 +356,7 @@ function App() {
   const [leagues, setLeagues] = useState<League[]>([])
   const [selectedLeagueId, setSelectedLeagueId] = useState('')
   const [liveMatch, setLiveMatch] = useState<LiveMatch | null>(null)
+  const [adminLiveMatches, setAdminLiveMatches] = useState<LiveMatch[]>([])
   const [selectedTeamId, setSelectedTeamId] = useState('')
   const [selectedPlayerId, setSelectedPlayerId] = useState('')
   const [selectedStaffRole, setSelectedStaffRole] = useState<LiveStaffRole>('director')
@@ -482,6 +483,7 @@ function App() {
   const [showMvpModal, setShowMvpModal] = useState(false)
   const [showDeleteEventModal, setShowDeleteEventModal] = useState(false)
   const [deletingEventId, setDeletingEventId] = useState('')
+  const [confirmDeleteEventId, setConfirmDeleteEventId] = useState('')
   const [finishingMatch, setFinishingMatch] = useState(false)
   const [mvpSearchTerm, setMvpSearchTerm] = useState('')
   const [secondHalfStarted, setSecondHalfStarted] = useState(false)
@@ -552,12 +554,16 @@ function App() {
       return stillExists ? currentSelectedLeagueId : (response.data[0]?.id ?? '')
     })
 
-    const liveResponse = await apiService.getLiveMatch()
+    const liveResponse = await apiService.getAllLiveMatches()
     if (liveResponse.ok) {
-      setLiveMatch(liveResponse.data)
-      setSelectedTeamId(liveResponse.data.homeTeam.id)
-      setLineupStarters(liveResponse.data.homeTeam.starters)
-      setLineupSubstitutes(liveResponse.data.homeTeam.substitutes)
+      setAdminLiveMatches(liveResponse.data)
+      const currentLive = liveResponse.data.find((m) => m.status === 'live') ?? liveResponse.data[0] ?? null
+      if (currentLive) {
+        setLiveMatch(currentLive)
+        setSelectedTeamId(currentLive.homeTeam.id)
+        setLineupStarters(currentLive.homeTeam.starters)
+        setLineupSubstitutes(currentLive.homeTeam.substitutes)
+      }
     }
 
     if (authUser.role === 'super_admin') {
@@ -603,6 +609,15 @@ function App() {
 
     socket.on('live:update', (snapshot: LiveMatch) => {
       setLiveMatch(snapshot)
+    })
+
+    socket.on('live:all', (snapshots: LiveMatch[]) => {
+      setAdminLiveMatches(snapshots)
+      setLiveMatch((current) => {
+        if (!current) return snapshots.find((m) => m.status === 'live') ?? snapshots[0] ?? null
+        const updatedCurrent = snapshots.find((m) => m.id === current.id)
+        return updatedCurrent ?? current
+      })
     })
 
     return () => {
@@ -2005,6 +2020,7 @@ function App() {
       applyActionFeedback(response.ok, 'Evento eliminado', response.ok ? '' : response.message)
     } finally {
       setDeletingEventId('')
+      setConfirmDeleteEventId('')
     }
   }
 
@@ -2516,10 +2532,15 @@ function App() {
     ? teamsById.get(selectedPendingMatchScoped.awayTeamId) ?? null
     : null
 
-  const liveLoadedForSelectedPendingScoped =
-    Boolean(liveMatch && selectedPendingMatchScoped) &&
-    ((liveMatch?.homeTeam.id === selectedPendingMatchScoped?.homeTeamId && liveMatch?.awayTeam.id === selectedPendingMatchScoped?.awayTeamId) ||
-      (liveMatch?.homeTeam.id === selectedPendingMatchScoped?.awayTeamId && liveMatch?.awayTeam.id === selectedPendingMatchScoped?.homeTeamId))
+  const liveLoadedForSelectedPendingScoped = Boolean(
+    selectedPendingMatchScoped
+    && adminLiveMatches.some((match) => match.id === selectedPendingMatchScoped.id && match.status !== 'finished'),
+  )
+
+  const liveActiveForSelectedPendingScoped = Boolean(
+    selectedPendingMatchScoped
+    && adminLiveMatches.some((match) => match.id === selectedPendingMatchScoped.id && match.status === 'live'),
+  )
 
   const configuredStageTeamCount = useMemo(() => {
     if (competitionRulesDraft.finalStageRoundOf16Enabled) return 32
@@ -3598,6 +3619,10 @@ function App() {
 
   const startPendingMatchLive = async () => {
     if (!selectedLeague || !activeMatchCategoryId || !selectedPendingMatch) return
+    if (adminLiveMatches.some((match) => match.id === selectedPendingMatch.id && match.status === 'live')) {
+      applyActionFeedback(false, '', 'Este partido ya está en vivo en otra sesión de admin')
+      return
+    }
 
     const response = await apiService.loadLiveMatch({
       matchId: selectedPendingMatch.id,
@@ -3621,6 +3646,11 @@ function App() {
     setSubstitutionTimelineByTeam({})
     setSelectedMvpPlayerId('')
     setSecondHalfStarted(false)
+    setAdminLiveMatches((current) => {
+      const next = current.filter((item) => item.id !== response.data.id)
+      next.unshift(response.data)
+      return next
+    })
     // Unirse al room del partido para recibir live:update en tiempo real
     adminSocketRef.current?.emit('join:match', selectedPendingMatch.id)
     applyActionFeedback(true, 'Partido cargado para iniciar en vivo', '')
@@ -5524,7 +5554,9 @@ function App() {
                     </button>
                     {liveLoadedForSelectedPendingScoped && (
                       <p className="mt-1 text-[11px] text-emerald-100/80">
-                        Este partido ya está cargado en Live. Finaliza y guarda para moverlo a historial.
+                        {liveActiveForSelectedPendingScoped
+                          ? 'Este partido ya está en vivo en otra sesión. Puedes iniciar otro partido en simultáneo.'
+                          : 'Este partido ya está cargado en Live. Finaliza y guarda para moverlo a historial.'}
                       </p>
                     )}
 
@@ -6453,7 +6485,10 @@ function App() {
                   <p className="text-sm font-semibold text-white">Últimos eventos</p>
                   <button
                     type="button"
-                    onClick={() => setShowDeleteEventModal(true)}
+                    onClick={() => {
+                      setConfirmDeleteEventId('')
+                      setShowDeleteEventModal(true)
+                    }}
                     disabled={liveMatch.events.length === 0 || liveIsFinished}
                     className="rounded border border-amber-300/30 bg-amber-500/15 px-2 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-50"
                   >
@@ -6920,7 +6955,10 @@ function App() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setShowDeleteEventModal(false)}
+                  onClick={() => {
+                    setConfirmDeleteEventId('')
+                    setShowDeleteEventModal(false)
+                  }}
                   disabled={Boolean(deletingEventId)}
                   className="rounded border border-white/20 bg-slate-800 px-2 py-1 text-xs text-slate-200 disabled:opacity-50"
                 >
@@ -6937,19 +6975,41 @@ function App() {
                   const team = event.teamId === liveMatch.homeTeam.id ? liveMatch.homeTeam : liveMatch.awayTeam
                   const actorLabel = resolveEventActorLabel(team, event)
                   const busy = deletingEventId === event.id
+                  const confirming = confirmDeleteEventId === event.id
                   return (
                     <div key={event.id} className="flex items-center justify-between gap-2 rounded border border-white/10 bg-slate-800 px-3 py-2 text-slate-200">
                       <div className="min-w-0">
                         <p className="truncate">{event.clock} · {team.name} · {eventLabel(event.type)} · {actorLabel}</p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => void deleteLiveEventById(event.id)}
-                        disabled={Boolean(deletingEventId)}
-                        className="rounded border border-rose-300/35 bg-rose-500/20 px-2 py-1 text-[11px] font-semibold text-rose-100 hover:bg-rose-500/30 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {busy ? 'Eliminando...' : 'Eliminar'}
-                      </button>
+                      {confirming ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteEventId('')}
+                            disabled={Boolean(deletingEventId)}
+                            className="rounded border border-white/20 bg-slate-700 px-2 py-1 text-[11px] font-semibold text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteLiveEventById(event.id)}
+                            disabled={Boolean(deletingEventId)}
+                            className="rounded border border-rose-300/35 bg-rose-500/25 px-2 py-1 text-[11px] font-semibold text-rose-100 hover:bg-rose-500/35 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {busy ? 'Eliminando...' : 'Confirmar'}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteEventId(event.id)}
+                          disabled={Boolean(deletingEventId)}
+                          className="rounded border border-rose-300/35 bg-rose-500/20 px-2 py-1 text-[11px] font-semibold text-rose-100 hover:bg-rose-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Eliminar
+                        </button>
+                      )}
                     </div>
                   )
                 })}
