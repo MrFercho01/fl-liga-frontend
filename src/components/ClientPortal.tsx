@@ -5,6 +5,14 @@ import { apiBaseUrl, apiService } from '../services/api'
 import type { FixtureScheduleEntry } from '../types/admin'
 import type { LiveEvent, LiveMatch } from '../types/live'
 
+/** Convierte una clave VAPID en base64url al Uint8Array que requiere pushManager.subscribe */
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = atob(base64)
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0))
+}
+
 const androidApkPublicUrl =
   (import.meta.env.VITE_ANDROID_APK_URL as string | undefined)?.trim()
   || 'https://fl-liga-backend.onrender.com/android/FL%20League.apk'
@@ -917,6 +925,49 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     }
   }, [])
 
+  /** Suscribe al usuario a Web Push para un partido específico */
+  const subscribePushForMatch = useCallback(async (matchId: string): Promise<void> => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) return
+    try {
+      // Obtener la clave pública VAPID del backend
+      const keyRes = await fetch(`${apiBaseUrl}/api/push/vapid-public-key`)
+      if (!keyRes.ok) return
+      const { key } = await keyRes.json() as { key: string }
+
+      const registration = await navigator.serviceWorker.ready
+      const existing = await registration.pushManager.getSubscription()
+      const sub = existing ?? await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key).buffer as ArrayBuffer,
+      })
+
+      await fetch(`${apiBaseUrl}/api/push/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchId, subscription: sub.toJSON() }),
+      })
+    } catch {
+      // Fallo silencioso — el fallback in-app ya funciona
+    }
+  }, [])
+
+  /** Cancela la suscripción Web Push para un partido específico */
+  const unsubscribePushForMatch = useCallback(async (matchId: string): Promise<void> => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) return
+    try {
+      const registration = await navigator.serviceWorker.ready
+      const sub = await registration.pushManager.getSubscription()
+      if (!sub) return
+      await fetch(`${apiBaseUrl}/api/push/unsubscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchId, subscription: sub.toJSON() }),
+      })
+    } catch {
+      // Fallo silencioso
+    }
+  }, [])
+
   const showFollowNotification = useCallback(async (title: string, body: string, tag: string) => {
     const tone: 'goal' | 'warning' | 'info' =
       title.includes('Gol') || title.includes('Autogol')
@@ -1585,9 +1636,11 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       if (granted) {
         const teamsLabel = `Partido ${selectedMatch.id}`
         void showFollowNotification('🔔 Seguimiento activado', teamsLabel, `follow-enabled-${selectedMatch.id}`)
+        void subscribePushForMatch(selectedMatch.id)
       }
     } else if (typeof window !== 'undefined' && 'Notification' in window) {
       setNotificationsEnabled(window.Notification.permission === 'granted')
+      void unsubscribePushForMatch(selectedMatch.id)
     }
 
     if (typeof window !== 'undefined') {
@@ -1629,6 +1682,8 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     requestNotificationsPermission,
     selectedMatch,
     showFollowNotification,
+    subscribePushForMatch,
+    unsubscribePushForMatch,
     updatingMatchLike,
   ])
 
