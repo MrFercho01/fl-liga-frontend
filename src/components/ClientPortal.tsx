@@ -85,8 +85,8 @@ interface PublicFixturePayload {
     round: number
     homeTeamName: string
     awayTeamName: string
-    homeGoals: number
-    awayGoals: number
+    homeStats: { goals: number; shots: number; yellows: number; reds: number; assists: number }
+    awayStats: { goals: number; shots: number; yellows: number; reds: number; assists: number }
     finalMinute: number
     events: Array<{
       clock: string
@@ -1342,16 +1342,16 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
 
       home.pj += 1
       away.pj += 1
-      home.gf += record.homeGoals
-      home.gc += record.awayGoals
-      away.gf += record.awayGoals
-      away.gc += record.homeGoals
+      home.gf += record.homeStats.goals
+      home.gc += record.awayStats.goals
+      away.gf += record.awayStats.goals
+      away.gc += record.homeStats.goals
 
-      if (record.homeGoals > record.awayGoals) {
+      if (record.homeStats.goals > record.awayStats.goals) {
         home.pg += 1
         home.pts += 3
         away.pp += 1
-      } else if (record.homeGoals < record.awayGoals) {
+      } else if (record.homeStats.goals < record.awayStats.goals) {
         away.pg += 1
         away.pts += 3
         home.pp += 1
@@ -1924,8 +1924,8 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     }
 
     if (selectedMatchHistory?.record) {
-      const homeGoals = selectedMatchHistory.reverse ? selectedMatchHistory.record.awayGoals : selectedMatchHistory.record.homeGoals
-      const awayGoals = selectedMatchHistory.reverse ? selectedMatchHistory.record.homeGoals : selectedMatchHistory.record.awayGoals
+      const homeGoals = selectedMatchHistory.reverse ? selectedMatchHistory.record.awayStats.goals : selectedMatchHistory.record.homeStats.goals
+      const awayGoals = selectedMatchHistory.reverse ? selectedMatchHistory.record.homeStats.goals : selectedMatchHistory.record.awayStats.goals
       const finalMinute = Math.max(0, selectedMatchHistory.record.finalMinute)
       return {
         homeGoals,
@@ -2848,8 +2848,8 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                         ? (isLiveDirect ? referencedLiveMatch?.awayTeam.stats.goals ?? 0 : referencedLiveMatch?.homeTeam.stats.goals ?? 0)
                         : 0
 
-                      const homeGoals = history ? (history.reverse ? history.record.awayGoals : history.record.homeGoals) : 0
-                      const awayGoals = history ? (history.reverse ? history.record.homeGoals : history.record.awayGoals) : 0
+                      const homeGoals = history ? (history.reverse ? history.record.awayStats?.goals ?? 0 : history.record.homeStats?.goals ?? 0) : 0
+                      const awayGoals = history ? (history.reverse ? history.record.homeStats?.goals ?? 0 : history.record.awayStats?.goals ?? 0) : 0
                       const previewHomeGoals = history ? homeGoals : liveHomeGoals
                       const previewAwayGoals = history ? awayGoals : liveAwayGoals
                       const historyEvents = history?.record.events ?? []
@@ -3214,7 +3214,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                 <article className="rounded-2xl border border-emerald-300/30 bg-emerald-500/10 p-4 lg:col-span-2">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-sm font-semibold text-emerald-100">
-                      Datos finales del partido · {selectedMatchHistory.record.homeTeamName} {selectedMatchHistory.reverse ? selectedMatchHistory.record.awayGoals : selectedMatchHistory.record.homeGoals} - {selectedMatchHistory.reverse ? selectedMatchHistory.record.homeGoals : selectedMatchHistory.record.awayGoals} {selectedMatchHistory.record.awayTeamName}
+                       Datos finales del partido · {selectedMatchHistory.record.homeTeamName} {selectedMatchHistory.reverse ? selectedMatchHistory.record.awayStats.goals : selectedMatchHistory.record.homeStats.goals} - {selectedMatchHistory.reverse ? selectedMatchHistory.record.homeStats.goals : selectedMatchHistory.record.awayStats.goals} {selectedMatchHistory.record.awayTeamName}
                     </p>
                     <span className="rounded-full border border-emerald-300/40 bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-100">
                       Min final: {selectedMatchHistory.record.finalMinute}
@@ -3246,7 +3246,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                     )}
 
                     <div className="mt-3 rounded border border-white/10 bg-slate-950/60 px-2 py-1 text-[11px] text-slate-200">
-                      Resumen guardado: Goles {selectedMatchHistory.record.homeGoals + selectedMatchHistory.record.awayGoals} · TA {selectedMatchHistory.record.events.filter((event) => event.type === 'yellow' || event.type === 'double_yellow' || event.type === 'staff_yellow').length} · TR {selectedMatchHistory.record.events.filter((event) => event.type === 'red' || event.type === 'double_yellow' || event.type === 'staff_red').length}
+                       Resumen guardado: Goles {selectedMatchHistory.record.homeStats.goals + selectedMatchHistory.record.awayStats.goals} · TA {selectedMatchHistory.record.events.filter((event) => event.type === 'yellow' || event.type === 'double_yellow' || event.type === 'staff_yellow').length} · TR {selectedMatchHistory.record.events.filter((event) => event.type === 'red' || event.type === 'double_yellow' || event.type === 'staff_red').length}
                     </div>
                   </div>
                 </article>

@@ -621,8 +621,8 @@ export const apiService = {
         round: number
         homeTeamName: string
         awayTeamName: string
-        homeGoals: number
-        awayGoals: number
+        homeStats: { goals: number; shots: number; yellows: number; reds: number; assists: number }
+        awayStats: { goals: number; shots: number; yellows: number; reds: number; assists: number }
         finalMinute: number
         events: Array<{
           clock: string
@@ -700,8 +700,8 @@ export const apiService = {
             round: number
             homeTeamName: string
             awayTeamName: string
-            homeGoals: number
-            awayGoals: number
+            homeStats: { goals: number; shots: number; yellows: number; reds: number; assists: number }
+            awayStats: { goals: number; shots: number; yellows: number; reds: number; assists: number }
             finalMinute: number
             events: Array<{
               clock: string
