@@ -1221,6 +1221,7 @@ export const apiService = {
   },
 
   async loadLiveMatch(payload: {
+    matchId: string
     leagueId: string
     categoryId: string
     homeTeamId: string

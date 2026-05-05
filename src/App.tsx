@@ -3561,6 +3561,7 @@ function App() {
     if (!selectedLeague || !activeMatchCategoryId || !selectedPendingMatch) return
 
     const response = await apiService.loadLiveMatch({
+      matchId: selectedPendingMatch.id,
       leagueId: selectedLeague.id,
       categoryId: activeMatchCategoryId,
       homeTeamId: selectedPendingMatch.homeTeamId,
