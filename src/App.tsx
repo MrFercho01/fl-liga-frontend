@@ -922,6 +922,7 @@ function App() {
       setSavingFormation(true)
       try {
         const response = await apiService.saveLineup(
+          liveMatch?.id ?? '',
           selectedTeam.id,
           selectedTeam.starters,
           selectedTeam.substitutes,
@@ -1669,6 +1670,7 @@ function App() {
     }
 
     const response = await apiService.saveLineup(
+      liveMatch?.id ?? '',
       selectedTeam.id,
       lineupStarters,
       lineupSubstitutes,
@@ -1708,7 +1710,7 @@ function App() {
       return
     }
 
-    const response = await apiService.setLiveTimer(action)
+    const response = await apiService.setLiveTimer(liveMatch?.id ?? '', action)
     if (response.ok) {
       setLiveMatch(response.data)
       const activeTeam =
@@ -1750,7 +1752,7 @@ function App() {
 
     setFinishingMatch(true)
     try {
-      const finishResponse = await apiService.setLiveTimer('finish')
+      const finishResponse = await apiService.setLiveTimer(liveMatch?.id ?? '', 'finish')
       if (!finishResponse.ok) {
         applyActionFeedback(false, '', finishResponse.message)
         return
@@ -1872,7 +1874,7 @@ function App() {
       }
 
       if (liveMatch) {
-        const liveResponse = await apiService.updateLiveSettings(settingsDraft)
+        const liveResponse = await apiService.updateLiveSettings(liveMatch?.id ?? '', settingsDraft)
         if (!liveResponse.ok) {
           applyActionFeedback(false, '', liveResponse.message || 'No se pudo actualizar settings live')
           return
@@ -1899,7 +1901,7 @@ function App() {
 
     const playerId = selectedPlayerId || null
     const resolved = resolveEventTypeForCard(selectedTeam.id, playerId, eventType)
-    const response = await apiService.registerLiveEvent(selectedTeam.id, resolved.type, playerId)
+    const response = await apiService.registerLiveEvent(liveMatch?.id ?? '', selectedTeam.id, resolved.type, playerId)
     const feedbackMap: Record<string, string> = {
       shot: 'Remate',
       goal: 'Gol',
@@ -1928,7 +1930,7 @@ function App() {
     }
 
     const resolved = resolveEventTypeForCard(teamId, playerId, eventType)
-    const response = await apiService.registerLiveEvent(teamId, resolved.type, playerId)
+    const response = await apiService.registerLiveEvent(liveMatch?.id ?? '', teamId, resolved.type, playerId)
     const labels: Record<string, string> = {
       shot: 'Remate',
       goal: 'Gol',
@@ -1965,7 +1967,7 @@ function App() {
       return
     }
 
-    const response = await apiService.registerLiveEvent(selectedTeam.id, eventType, null, staffRole)
+    const response = await apiService.registerLiveEvent(liveMatch?.id ?? '', selectedTeam.id, eventType, null, staffRole)
     const cardLabel = eventType === 'staff_yellow' ? 'TA' : 'TR'
     applyActionFeedback(response.ok, `${cardLabel} para ${staffRoleLabel(staffRole)} registrada`, response.ok ? '' : response.message)
   }
@@ -2031,6 +2033,7 @@ function App() {
     const nextSubstitutes = lineupSubstitutes.filter((id) => id !== incomingPlayerId && id !== outgoingPlayerId)
 
     const lineupResponse = await apiService.saveLineup(
+      liveMatch?.id ?? '',
       selectedTeam.id,
       nextStarters,
       nextSubstitutes,
@@ -2041,7 +2044,7 @@ function App() {
       return
     }
 
-    const eventResponse = await apiService.registerLiveEvent(selectedTeam.id, 'substitution', outgoingPlayerId, undefined, incomingPlayerId)
+    const eventResponse = await apiService.registerLiveEvent(liveMatch?.id ?? '', selectedTeam.id, 'substitution', outgoingPlayerId, undefined, incomingPlayerId)
     if (!eventResponse.ok) {
       applyActionFeedback(false, '', eventResponse.message)
       return

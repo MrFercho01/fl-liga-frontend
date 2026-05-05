@@ -759,12 +759,25 @@ export const apiService = {
     }
   },
 
-  async setLiveTimer(action: LiveTimerAction): Promise<ApiResponse<LiveMatch>> {
+  async getAllLiveMatches(): Promise<ApiResponse<LiveMatch[]>> {
+    try {
+      const response = await apiFetch(`${apiBaseUrl}/api/live`)
+      if (!response.ok) {
+        return { ok: false, message: 'No se pudieron cargar los partidos en vivo' }
+      }
+      const payload = (await response.json()) as { data: LiveMatch[] }
+      return { ok: true, data: payload.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con módulo live' }
+    }
+  },
+
+  async setLiveTimer(matchId: string, action: LiveTimerAction): Promise<ApiResponse<LiveMatch>> {
     try {
       const response = await apiFetch(`${apiBaseUrl}/api/admin/live/timer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ matchId, action }),
       })
 
       if (!response.ok) {
@@ -779,12 +792,12 @@ export const apiService = {
     }
   },
 
-  async updateLiveSettings(settings: Partial<LiveSettings>): Promise<ApiResponse<LiveMatch>> {
+  async updateLiveSettings(matchId: string, settings: Partial<LiveSettings>): Promise<ApiResponse<LiveMatch>> {
     try {
       const response = await apiFetch(`${apiBaseUrl}/api/admin/live/settings`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
+        body: JSON.stringify({ matchId, ...settings }),
       })
 
       if (!response.ok) {
@@ -800,6 +813,7 @@ export const apiService = {
   },
 
   async saveLineup(
+    matchId: string,
     teamId: string,
     starters: string[],
     substitutes: string[],
@@ -809,7 +823,7 @@ export const apiService = {
       const response = await apiFetch(`${apiBaseUrl}/api/admin/live/lineup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamId, starters, substitutes, ...(formationKey ? { formationKey } : {}) }),
+        body: JSON.stringify({ matchId, teamId, starters, substitutes, ...(formationKey ? { formationKey } : {}) }),
       })
 
       if (!response.ok) {
@@ -825,6 +839,7 @@ export const apiService = {
   },
 
   async registerLiveEvent(
+    matchId: string,
     teamId: string,
     type:
       | 'shot'
@@ -847,6 +862,7 @@ export const apiService = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          matchId,
           teamId,
           type,
           playerId,

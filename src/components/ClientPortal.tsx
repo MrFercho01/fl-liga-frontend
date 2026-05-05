@@ -647,6 +647,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   const [selectedMatchId, setSelectedMatchId] = useState('')
   const [fixturePayload, setFixturePayload] = useState<PublicFixturePayload | null>(null)
   const [liveMatch, setLiveMatch] = useState<LiveMatch | null>(null)
+  const [_liveMatches, setLiveMatches] = useState<LiveMatch[]>([])
   const [homeLogoPalette, setHomeLogoPalette] = useState<{ logoUrl: string; palette: TeamPalette | null } | null>(null)
   const [awayLogoPalette, setAwayLogoPalette] = useState<{ logoUrl: string; palette: TeamPalette | null } | null>(null)
   const [clockNowMs, setClockNowMs] = useState(() => Date.now())
@@ -928,9 +929,10 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
 
   useEffect(() => {
     const fetchLive = async () => {
-      const response = await apiService.getLiveMatch()
+      const response = await apiService.getAllLiveMatches()
       if (response.ok) {
-        setLiveMatch(response.data)
+        setLiveMatches(response.data)
+        setLiveMatch(response.data.find((m) => m.status === 'live') ?? response.data[0] ?? null)
         setLiveSnapshotCapturedAt(Date.now())
       }
     }
@@ -940,8 +942,9 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       transports: ['websocket'],
     })
 
-    socket.on('live:update', (snapshot: LiveMatch) => {
-      setLiveMatch(snapshot)
+    socket.on('live:all', (snapshots: LiveMatch[]) => {
+      setLiveMatches(snapshots)
+      setLiveMatch(snapshots.find((m) => m.status === 'live') ?? snapshots[0] ?? null)
       setLiveSnapshotCapturedAt(Date.now())
     })
 
