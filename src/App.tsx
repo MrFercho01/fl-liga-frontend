@@ -480,6 +480,8 @@ function App() {
   const [finalsRightSeedTeamIds, setFinalsRightSeedTeamIds] = useState<string[]>([])
   const [draggingFinalSeedTeamId, setDraggingFinalSeedTeamId] = useState('')
   const [showMvpModal, setShowMvpModal] = useState(false)
+  const [showDeleteEventModal, setShowDeleteEventModal] = useState(false)
+  const [deletingEventId, setDeletingEventId] = useState('')
   const [finishingMatch, setFinishingMatch] = useState(false)
   const [mvpSearchTerm, setMvpSearchTerm] = useState('')
   const [secondHalfStarted, setSecondHalfStarted] = useState(false)
@@ -1979,26 +1981,31 @@ function App() {
     applyActionFeedback(response.ok, `${cardLabel} para ${staffRoleLabel(staffRole)} registrada`, response.ok ? '' : response.message)
   }
 
-  const undoLastLiveEvent = async () => {
+  const deleteLiveEventById = async (eventId: string) => {
     if (!liveMatch) return
-    if (liveMatch.events.length === 0) {
-      applyActionFeedback(false, '', 'No hay eventos para anular')
+    if (liveIsFinished) {
+      applyActionFeedback(false, '', 'Partido finalizado: no se pueden eliminar eventos live')
       return
     }
 
-    const response = await apiService.undoLastLiveEvent(liveMatch.id)
-    if (response.ok) {
-      setLiveMatch(response.data)
-      const activeTeam =
-        response.data.homeTeam.id === selectedTeamId || response.data.awayTeam.id === selectedTeamId
-          ? (response.data.homeTeam.id === selectedTeamId ? response.data.homeTeam : response.data.awayTeam)
-          : response.data.homeTeam
-      setSelectedTeamId(activeTeam.id)
-      setLineupStarters(activeTeam.starters)
-      setLineupSubstitutes(activeTeam.substitutes)
-    }
+    setDeletingEventId(eventId)
+    try {
+      const response = await apiService.deleteLiveEvent(liveMatch.id, eventId)
+      if (response.ok) {
+        setLiveMatch(response.data)
+        const activeTeam =
+          response.data.homeTeam.id === selectedTeamId || response.data.awayTeam.id === selectedTeamId
+            ? (response.data.homeTeam.id === selectedTeamId ? response.data.homeTeam : response.data.awayTeam)
+            : response.data.homeTeam
+        setSelectedTeamId(activeTeam.id)
+        setLineupStarters(activeTeam.starters)
+        setLineupSubstitutes(activeTeam.substitutes)
+      }
 
-    applyActionFeedback(response.ok, 'Último evento anulado', response.ok ? '' : response.message)
+      applyActionFeedback(response.ok, 'Evento eliminado', response.ok ? '' : response.message)
+    } finally {
+      setDeletingEventId('')
+    }
   }
 
   const substitutionOutOptions = useMemo(() => {
@@ -6446,11 +6453,11 @@ function App() {
                   <p className="text-sm font-semibold text-white">Últimos eventos</p>
                   <button
                     type="button"
-                    onClick={() => void undoLastLiveEvent()}
-                    disabled={liveMatch.events.length === 0}
+                    onClick={() => setShowDeleteEventModal(true)}
+                    disabled={liveMatch.events.length === 0 || liveIsFinished}
                     className="rounded border border-amber-300/30 bg-amber-500/15 px-2 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Anular último evento
+                    Eliminar evento
                   </button>
                 </div>
                 <div className="max-h-64 space-y-2 overflow-auto pr-1 text-xs">
@@ -6898,6 +6905,54 @@ function App() {
                 >
                   {finishingMatch ? 'Cerrando y guardando...' : 'Confirmar cierre y guardar'}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showDeleteEventModal && liveMatch && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/75 px-4 backdrop-blur-[2px]">
+            <div className="w-full max-w-3xl rounded-2xl border border-white/15 bg-slate-900 p-4 shadow-2xl shadow-black/40">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Eliminar evento del partido</h3>
+                  <p className="text-xs text-slate-300">Selecciona el evento que deseas eliminar del registro live.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteEventModal(false)}
+                  disabled={Boolean(deletingEventId)}
+                  className="rounded border border-white/20 bg-slate-800 px-2 py-1 text-xs text-slate-200 disabled:opacity-50"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="max-h-[55vh] space-y-2 overflow-auto pr-1 text-xs">
+                {liveMatch.events.length === 0 && (
+                  <p className="rounded border border-white/10 bg-slate-800 px-3 py-2 text-slate-300">No hay eventos para eliminar.</p>
+                )}
+
+                {liveMatch.events.map((event) => {
+                  const team = event.teamId === liveMatch.homeTeam.id ? liveMatch.homeTeam : liveMatch.awayTeam
+                  const actorLabel = resolveEventActorLabel(team, event)
+                  const busy = deletingEventId === event.id
+                  return (
+                    <div key={event.id} className="flex items-center justify-between gap-2 rounded border border-white/10 bg-slate-800 px-3 py-2 text-slate-200">
+                      <div className="min-w-0">
+                        <p className="truncate">{event.clock} · {team.name} · {eventLabel(event.type)} · {actorLabel}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void deleteLiveEventById(event.id)}
+                        disabled={Boolean(deletingEventId)}
+                        className="rounded border border-rose-300/35 bg-rose-500/20 px-2 py-1 text-[11px] font-semibold text-rose-100 hover:bg-rose-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {busy ? 'Eliminando...' : 'Eliminar'}
+                      </button>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           </div>

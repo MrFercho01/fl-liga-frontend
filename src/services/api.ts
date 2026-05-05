@@ -886,17 +886,17 @@ export const apiService = {
     }
   },
 
-  async undoLastLiveEvent(matchId: string): Promise<ApiResponse<LiveMatch>> {
+  async deleteLiveEvent(matchId: string, eventId: string): Promise<ApiResponse<LiveMatch>> {
     try {
-      const response = await apiFetch(`${apiBaseUrl}/api/admin/live/events/undo`, {
+      const response = await apiFetch(`${apiBaseUrl}/api/admin/live/events/delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matchId }),
+        body: JSON.stringify({ matchId, eventId }),
       })
 
       const payload = (await response.json()) as { message?: string; data?: LiveMatch }
       if (!response.ok) {
-        return { ok: false, message: payload.message ?? 'No se pudo anular el evento' }
+        return { ok: false, message: payload.message ?? 'No se pudo eliminar el evento' }
       }
 
       if (!payload.data) {
