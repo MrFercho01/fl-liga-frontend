@@ -193,6 +193,23 @@ const normalizeLabel = (value: string) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
 
+const formatCompactPlayerName = (name: string, maxLength = 18) => {
+  const cleaned = name.trim().replace(/\s+/g, ' ')
+  if (!cleaned) return 'Sin nombre'
+
+  const words = cleaned.split(' ')
+  if (words.length === 1) {
+    if (cleaned.length <= maxLength) return cleaned
+    return `${cleaned.slice(0, Math.max(1, maxLength - 1))}…`
+  }
+
+  const firstInitial = words[0].charAt(0).toUpperCase()
+  const lastName = words[words.length - 1]
+  const compact = `${firstInitial}. ${lastName}`
+  if (compact.length <= maxLength) return compact
+  return `${firstInitial}. ${lastName.slice(0, Math.max(1, maxLength - 4))}…`
+}
+
 const parseFormationLines = (formationKey?: string) => {
   if (!formationKey) return null
   const parsed = formationKey
@@ -5498,8 +5515,8 @@ function App() {
                         </p>
                         <div className="mt-1 max-h-36 space-y-1 overflow-auto pr-1 text-xs text-slate-200">
                           {(selectedPendingHomeTeam?.players ?? []).map((player) => (
-                            <p key={player.id}>
-                              #{player.number} {player.name} ({player.position})
+                            <p key={player.id} title={player.name} className="truncate">
+                              #{player.number} {formatCompactPlayerName(player.name, 18)} ({player.position})
                             </p>
                           ))}
                           {(selectedPendingHomeTeam?.players.length ?? 0) === 0 && (
@@ -5514,8 +5531,8 @@ function App() {
                         </p>
                         <div className="mt-1 max-h-36 space-y-1 overflow-auto pr-1 text-xs text-slate-200">
                           {(selectedPendingAwayTeam?.players ?? []).map((player) => (
-                            <p key={player.id}>
-                              #{player.number} {player.name} ({player.position})
+                            <p key={player.id} title={player.name} className="truncate">
+                              #{player.number} {formatCompactPlayerName(player.name, 18)} ({player.position})
                             </p>
                           ))}
                           {(selectedPendingAwayTeam?.players.length ?? 0) === 0 && (
@@ -5571,7 +5588,7 @@ function App() {
                             <span>{selectedPlayedStatsScoped.homeTeamName}</span>
                           </div>
 
-                          <div className="relative h-[400px]">
+                          <div className="relative h-[320px] sm:h-[400px]">
                             <div className="absolute inset-x-2 top-4 bottom-1/2 flex flex-col justify-evenly">
                               {selectedPlayedAwayVisualLines.map((line, lineIndex) => (
                                 <div key={`history-away-line-${lineIndex}`} className="px-1">
@@ -5591,7 +5608,9 @@ function App() {
                                           <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-slate-900/70 text-xs font-bold text-white">
                                             {player.number}
                                           </div>
-                                          <p className="mt-1 px-0.5 text-[10px] font-semibold text-white leading-tight break-words">{player.name}</p>
+                                          <p title={player.name} className="mt-1 px-0.5 text-[9px] font-semibold leading-tight text-white sm:text-[10px]">
+                                            {formatCompactPlayerName(player.name, 14)}
+                                          </p>
                                           {badges.length > 0 && (
                                             <div className="mt-1 flex flex-wrap justify-center gap-1">
                                               {badges.map((badge) => (
@@ -5626,7 +5645,9 @@ function App() {
                                           <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-slate-900/70 text-xs font-bold text-white">
                                             {player.number}
                                           </div>
-                                          <p className="mt-1 px-0.5 text-[10px] font-semibold text-white leading-tight break-words">{player.name}</p>
+                                          <p title={player.name} className="mt-1 px-0.5 text-[9px] font-semibold leading-tight text-white sm:text-[10px]">
+                                            {formatCompactPlayerName(player.name, 14)}
+                                          </p>
                                           {badges.length > 0 && (
                                             <div className="mt-1 flex flex-wrap justify-center gap-1">
                                               {badges.map((badge) => (
@@ -5878,11 +5899,12 @@ function App() {
 
                   <div className="mt-3 rounded-xl border border-white/10 bg-slate-900/60 p-3">
                     <p className="mb-2 text-sm font-semibold text-white">Inscritos (arrastra a cancha)</p>
-                    <div className="max-h-56 space-y-2 overflow-auto pr-1">
+                    <div className="grid max-h-56 grid-cols-2 gap-1.5 overflow-auto pr-1 sm:block sm:space-y-2">
                       {allRegisteredPlayers.map((player) => {
                         const isStarter = lineupStarters.includes(player.id)
                         const isSubstitute = lineupSubstitutes.includes(player.id)
                         const isRedCarded = selectedTeam.redCarded.includes(player.id)
+                        const statusColor = isRedCarded ? 'text-rose-300' : isStarter ? 'text-emerald-300' : isSubstitute ? 'text-cyan-300' : 'text-slate-400'
                         const status = isRedCarded ? 'Expulsado' : isStarter ? 'Titular' : isSubstitute ? 'Suplente' : 'Disponible'
                         const badges = playerBadges(player.id)
 
@@ -5891,19 +5913,21 @@ function App() {
                           key={player.id}
                           draggable={!isRedCarded}
                           onDragStart={(event) => onDragPlayer(event, player.id)}
-                          className="cursor-grab rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-xs text-slate-100"
+                          className="cursor-grab rounded-lg border border-white/10 bg-slate-800 px-2 py-1.5 text-xs text-slate-100 sm:px-3 sm:py-2"
                         >
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5 sm:gap-2">
                             {player.photoUrl ? (
-                              <img src={player.photoUrl} alt={player.name} className="h-7 w-7 rounded-full border border-white/20 object-cover" />
+                              <img src={player.photoUrl} alt={player.name} className="h-6 w-6 flex-shrink-0 rounded-full border border-white/20 object-cover sm:h-7 sm:w-7" />
                             ) : (
-                              <div className="flex h-7 w-7 items-center justify-center rounded-full border border-white/20 text-[10px] text-slate-400">S/F</div>
+                              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border border-white/20 text-[9px] text-slate-400 sm:h-7 sm:w-7 sm:text-[10px]">S/F</div>
                             )}
-                            <div>
-                              <p>#{player.number} {player.name} ({player.position})</p>
-                              <p className="text-[10px] text-slate-400">{status}</p>
+                            <div className="min-w-0">
+                              <p title={player.name} className="truncate text-[10px] font-medium sm:text-xs">
+                                <span className="text-slate-400">#{player.number}</span> {formatCompactPlayerName(player.name, 14)}
+                              </p>
+                              <p className={`text-[9px] sm:text-[10px] ${statusColor}`}>{player.position} · {status}</p>
                               {badges.length > 0 && (
-                                <div className="mt-1 flex flex-wrap gap-1">
+                                <div className="mt-0.5 hidden flex-wrap gap-1 sm:flex">
                                   {badges.map((badge) => (
                                     <span key={`${player.id}-${badge}`} className="rounded bg-slate-700/90 px-1 py-0.5 text-[10px] text-slate-100">
                                       {badge}
@@ -5957,47 +5981,65 @@ function App() {
                         <span>{activeFormation?.label ?? '-'}</span>
                       </div>
 
-                      <div className="relative h-[360px]">
+                      <div className="relative h-[320px] sm:h-[360px]">
                         <div className="absolute inset-x-2 top-4 bottom-4 flex flex-col justify-between">
                           {formationRows.map((row) => (
-                            <div key={row.rowIndex} className="flex items-center justify-evenly gap-2">
+                            <div
+                              key={row.rowIndex}
+                              className="grid items-start gap-1.5 sm:gap-2"
+                              style={{ gridTemplateColumns: `repeat(${row.slotIndices.length}, minmax(0, 1fr))` }}
+                            >
                               {row.slotIndices.map((slotIndex) => {
                                 const playerId = starterSlots[slotIndex] ?? ''
                                 const player = playerId ? playerMap.get(playerId) : null
                                 const isRedCarded = playerId ? selectedTeam.redCarded.includes(playerId) : false
                                 const badges = playerId ? playerBadges(playerId) : []
+                                const hasBadge = badges.length > 0
                                 return (
-                                  <div key={`${row.rowIndex}-${slotIndex}`} className="w-[92px] text-center">
-                                    <div
-                                      onDragOver={(event) => event.preventDefault()}
-                                      onDrop={(event) => onDropToStarterSlot(event, slotIndex)}
-                                      className={`mx-auto flex h-11 w-11 items-center justify-center rounded-full border ${
-                                        playerId
-                                          ? 'border-white/80 bg-slate-900 text-white'
-                                          : 'border-dashed border-white/70 bg-emerald-900/25 text-emerald-100'
-                                      }`}
-                                      style={isRedCarded ? { opacity: 0.45, filter: 'grayscale(100%)' } : undefined}
-                                    >
-                                      {playerId ? (
-                                        <button
-                                          type="button"
-                                          draggable={!liveIsFinished && !isRedCarded}
-                                          onDragStart={(event) => onDragPlayer(event, playerId)}
-                                          onClick={() => removeFromLineup(playerId)}
-                                          className="h-full w-full rounded-full text-[12px] font-bold"
-                                        >
-                                          {player?.number ?? '•'}
-                                        </button>
-                                      ) : (
-                                        <span className="text-[10px]">+</span>
+                                  <div key={`${row.rowIndex}-${slotIndex}`} className="min-w-0 text-center">
+                                    {/* Círculo del jugador */}
+                                    <div className="relative mx-auto w-fit">
+                                      <div
+                                        onDragOver={(event) => event.preventDefault()}
+                                        onDrop={(event) => onDropToStarterSlot(event, slotIndex)}
+                                        className={`flex h-8 w-8 items-center justify-center rounded-full border sm:h-11 sm:w-11 ${
+                                          playerId
+                                            ? 'border-white/80 bg-slate-900 text-white'
+                                            : 'border-dashed border-white/70 bg-emerald-900/25 text-emerald-100'
+                                        }`}
+                                        style={isRedCarded ? { opacity: 0.45, filter: 'grayscale(100%)' } : undefined}
+                                      >
+                                        {playerId ? (
+                                          <button
+                                            type="button"
+                                            draggable={!liveIsFinished && !isRedCarded}
+                                            onDragStart={(event) => onDragPlayer(event, playerId)}
+                                            onClick={() => removeFromLineup(playerId)}
+                                            className="h-full w-full rounded-full text-[11px] font-bold sm:text-[12px]"
+                                          >
+                                            {player?.number ?? '•'}
+                                          </button>
+                                        ) : (
+                                          <span className="text-[10px]">+</span>
+                                        )}
+                                      </div>
+                                      {/* Punto indicador de eventos · visible solo en móvil */}
+                                      {player && hasBadge && (
+                                        <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-400 ring-1 ring-slate-900 sm:hidden" />
                                       )}
                                     </div>
 
-                                    <p className="mt-1 truncate text-[10px] font-semibold text-white drop-shadow">
-                                      {player ? player.name : 'Posición libre'}{isRedCarded ? ' · TR' : ''}
+                                    {/* Nombre abreviado: oculto en móvil, visible desde sm */}
+                                    <p
+                                      title={player?.name}
+                                      className="mt-0.5 hidden truncate text-[9px] font-semibold text-white drop-shadow sm:block sm:text-[10px]"
+                                    >
+                                      {player ? formatCompactPlayerName(player.name, 11) : '·'}{isRedCarded ? ' TR' : ''}
                                     </p>
+
+                                    {/* Badges: solo en sm+ */}
                                     {player && badges.length > 0 && (
-                                      <div className="mt-1 flex flex-wrap justify-center gap-1 px-1">
+                                      <div className="mt-0.5 hidden flex-wrap justify-center gap-0.5 sm:flex">
                                         {badges.map((badge) => (
                                           <span key={`${player.id}-field-${badge}`} className="rounded bg-black/45 px-1 py-0.5 text-[9px] text-white">
                                             {badge}
@@ -6046,7 +6088,9 @@ function App() {
                               ) : (
                                 <span className="flex h-6 w-6 items-center justify-center rounded-full border border-white/20 text-[10px] text-slate-400">S/F</span>
                               )}
-                              <span className="flex-1">{playerMap.get(id)?.name ?? id}</span>
+                              <span title={playerMap.get(id)?.name} className="min-w-0 flex-1 truncate">
+                                {formatCompactPlayerName(playerMap.get(id)?.name ?? id, 20)}
+                              </span>
                               {isOnField && <span className="rounded bg-primary-700/70 px-1 py-0.5 text-[10px] font-semibold">↗ En cancha</span>}
                             </span>
                             {badges.length > 0 && (
@@ -6085,7 +6129,9 @@ function App() {
                               ) : (
                                 <span className="flex h-6 w-6 items-center justify-center rounded-full border border-white/20 text-[10px] text-slate-400">S/F</span>
                               )}
-                              {playerMap.get(id)?.name ?? id}
+                              <span title={playerMap.get(id)?.name} className="min-w-0 flex-1 truncate">
+                                {formatCompactPlayerName(playerMap.get(id)?.name ?? id, 20)}
+                              </span>
                               {isRedCarded && <span className="rounded bg-rose-700/90 px-1 py-0.5 text-[10px] font-bold">TR</span>}
                             </span>
                           </button>
@@ -6129,7 +6175,7 @@ function App() {
                       >
                         <option value="">Sale (titular)</option>
                         {substitutionOutOptions.map((id) => (
-                          <option key={id} value={id}>{playerMap.get(id)?.name ?? id}</option>
+                          <option key={id} value={id}>{formatCompactPlayerName(playerMap.get(id)?.name ?? id, 24)}</option>
                         ))}
                       </select>
                       <select
@@ -6140,7 +6186,7 @@ function App() {
                       >
                         <option value="">Entra (suplente)</option>
                         {substitutionInOptions.map((id) => (
-                          <option key={id} value={id}>{playerMap.get(id)?.name ?? id}</option>
+                          <option key={id} value={id}>{formatCompactPlayerName(playerMap.get(id)?.name ?? id, 24)}</option>
                         ))}
                       </select>
                     </div>
