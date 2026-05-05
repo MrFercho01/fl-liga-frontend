@@ -2532,6 +2532,10 @@ function App() {
     ? teamsById.get(selectedPendingMatchScoped.awayTeamId) ?? null
     : null
 
+  const selectedPendingLiveMatchScoped = selectedPendingMatchScoped
+    ? adminLiveMatches.find((match) => match.id === selectedPendingMatchScoped.id && match.status !== 'finished') ?? null
+    : null
+
   const liveLoadedForSelectedPendingScoped = Boolean(
     selectedPendingMatchScoped
     && adminLiveMatches.some((match) => match.id === selectedPendingMatchScoped.id && match.status !== 'finished'),
@@ -3654,6 +3658,18 @@ function App() {
     // Unirse al room del partido para recibir live:update en tiempo real
     adminSocketRef.current?.emit('join:match', selectedPendingMatch.id)
     applyActionFeedback(true, 'Partido cargado para iniciar en vivo', '')
+  }
+
+  const openSelectedPendingLiveMatch = () => {
+    if (!selectedPendingLiveMatchScoped) return
+
+    setLiveMatch(selectedPendingLiveMatchScoped)
+    setSelectedTeamId(selectedPendingLiveMatchScoped.homeTeam.id)
+    setLineupStarters(selectedPendingLiveMatchScoped.homeTeam.starters)
+    setLineupSubstitutes(selectedPendingLiveMatchScoped.homeTeam.substitutes)
+    setSettingsDraft(selectedPendingLiveMatchScoped.settings)
+    adminSocketRef.current?.emit('join:match', selectedPendingLiveMatchScoped.id)
+    applyActionFeedback(true, 'Partido live abierto desde otra sesión', '')
   }
 
   const markCurrentMatchAsPlayed = async () => {
@@ -5419,6 +5435,7 @@ function App() {
                       const home = homeTeam?.name ?? 'Local'
                       const away = awayTeam?.name ?? 'Visitante'
                       const active = selectedPendingMatchId === match.id
+                      const liveStatus = adminLiveMatches.find((item) => item.id === match.id)?.status ?? null
                       const scheduledAt = fixtureDatesMap[match.id]
                       const venue = fixtureVenuesMap[match.id]
 
@@ -5453,6 +5470,16 @@ function App() {
                               <span className="flex h-5 w-5 items-center justify-center rounded border border-white/20 text-[10px] text-slate-400">V</span>
                             )}
                             <span>{away}</span>
+                            {liveStatus === 'live' && (
+                              <span className="rounded border border-rose-300/40 bg-rose-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-100">
+                                En vivo
+                              </span>
+                            )}
+                            {liveStatus === 'scheduled' && (
+                              <span className="rounded border border-amber-300/40 bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-100">
+                                Cargado
+                              </span>
+                            )}
                           </span>
                           <span className="ml-1">· {getRoundLabel(match.round)}</span>
                           {scheduledAt && <span className="ml-1 text-[11px] text-slate-400">• {new Date(scheduledAt).toLocaleString()}</span>}
@@ -5558,6 +5585,15 @@ function App() {
                           ? 'Este partido ya está en vivo en otra sesión. Puedes iniciar otro partido en simultáneo.'
                           : 'Este partido ya está cargado en Live. Finaliza y guarda para moverlo a historial.'}
                       </p>
+                    )}
+                    {liveActiveForSelectedPendingScoped && selectedPendingLiveMatchScoped && (
+                      <button
+                        type="button"
+                        onClick={openSelectedPendingLiveMatch}
+                        className="mt-2 rounded border border-sky-300/40 bg-sky-500/15 px-3 py-1 text-sm font-semibold text-sky-100 hover:bg-sky-500/25"
+                      >
+                        Abrir live actual
+                      </button>
                     )}
 
                     <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -6976,10 +7012,35 @@ function App() {
                   const actorLabel = resolveEventActorLabel(team, event)
                   const busy = deletingEventId === event.id
                   const confirming = confirmDeleteEventId === event.id
+                  const impactText =
+                    event.type === 'goal'
+                      ? `Se descontará 1 gol a ${team.name}.`
+                      : event.type === 'own_goal'
+                        ? `Se descontará 1 gol al rival de ${team.name}.`
+                        : event.type === 'penalty_goal'
+                          ? `Se descontará 1 gol y 1 remate a ${team.name}.`
+                          : event.type === 'penalty_miss'
+                            ? `Se descontará 1 remate a ${team.name}.`
+                            : event.type === 'assist'
+                              ? `Se descontará 1 asistencia a ${actorLabel}.`
+                              : event.type === 'yellow'
+                                ? `Se quitará 1 tarjeta amarilla a ${actorLabel}.`
+                                : event.type === 'red'
+                                  ? `Se quitará 1 tarjeta roja a ${actorLabel}.`
+                                  : event.type === 'double_yellow'
+                                    ? `Se quitarán la amarilla y la expulsión de ${actorLabel}.`
+                                    : event.type === 'substitution'
+                                      ? 'Se eliminará el registro del cambio y se recalcularán las estadísticas del live.'
+                                      : event.type === 'staff_yellow'
+                                        ? `Se quitará 1 amarilla al ${actorLabel}.`
+                                        : event.type === 'staff_red'
+                                          ? `Se quitará 1 roja al ${actorLabel}.`
+                                          : 'Se eliminará este evento del live.'
                   return (
                     <div key={event.id} className="flex items-center justify-between gap-2 rounded border border-white/10 bg-slate-800 px-3 py-2 text-slate-200">
                       <div className="min-w-0">
                         <p className="truncate">{event.clock} · {team.name} · {eventLabel(event.type)} · {actorLabel}</p>
+                        {confirming && <p className="mt-1 text-[11px] text-amber-200">{impactText}</p>}
                       </div>
                       {confirming ? (
                         <div className="flex items-center gap-2">
