@@ -128,6 +128,20 @@ interface PublicFixturePayload {
   }>
 }
 
+type PublicPlayedMatch = PublicFixturePayload['playedMatches'][number]
+
+const readHomeGoals = (record: PublicPlayedMatch): number => {
+  if (typeof record.homeStats?.goals === 'number') return record.homeStats.goals
+  const legacy = (record as PublicPlayedMatch & { homeGoals?: number }).homeGoals
+  return typeof legacy === 'number' ? legacy : 0
+}
+
+const readAwayGoals = (record: PublicPlayedMatch): number => {
+  if (typeof record.awayStats?.goals === 'number') return record.awayStats.goals
+  const legacy = (record as PublicPlayedMatch & { awayGoals?: number }).awayGoals
+  return typeof legacy === 'number' ? legacy : 0
+}
+
 interface ClientPortalProps {
   clientId: string
 }
@@ -1342,16 +1356,19 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
 
       home.pj += 1
       away.pj += 1
-      home.gf += record.homeStats.goals
-      home.gc += record.awayStats.goals
-      away.gf += record.awayStats.goals
-      away.gc += record.homeStats.goals
+      const homeGoals = readHomeGoals(record)
+      const awayGoals = readAwayGoals(record)
 
-      if (record.homeStats.goals > record.awayStats.goals) {
+      home.gf += homeGoals
+      home.gc += awayGoals
+      away.gf += awayGoals
+      away.gc += homeGoals
+
+      if (homeGoals > awayGoals) {
         home.pg += 1
         home.pts += 3
         away.pp += 1
-      } else if (record.homeStats.goals < record.awayStats.goals) {
+      } else if (homeGoals < awayGoals) {
         away.pg += 1
         away.pts += 3
         home.pp += 1
@@ -1924,8 +1941,10 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     }
 
     if (selectedMatchHistory?.record) {
-      const homeGoals = selectedMatchHistory.reverse ? selectedMatchHistory.record.awayStats.goals : selectedMatchHistory.record.homeStats.goals
-      const awayGoals = selectedMatchHistory.reverse ? selectedMatchHistory.record.homeStats.goals : selectedMatchHistory.record.awayStats.goals
+      const baseHomeGoals = readHomeGoals(selectedMatchHistory.record)
+      const baseAwayGoals = readAwayGoals(selectedMatchHistory.record)
+      const homeGoals = selectedMatchHistory.reverse ? baseAwayGoals : baseHomeGoals
+      const awayGoals = selectedMatchHistory.reverse ? baseHomeGoals : baseAwayGoals
       const finalMinute = Math.max(0, selectedMatchHistory.record.finalMinute)
       return {
         homeGoals,
@@ -2848,8 +2867,8 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                         ? (isLiveDirect ? referencedLiveMatch?.awayTeam.stats.goals ?? 0 : referencedLiveMatch?.homeTeam.stats.goals ?? 0)
                         : 0
 
-                      const homeGoals = history ? (history.reverse ? history.record.awayStats?.goals ?? 0 : history.record.homeStats?.goals ?? 0) : 0
-                      const awayGoals = history ? (history.reverse ? history.record.homeStats?.goals ?? 0 : history.record.awayStats?.goals ?? 0) : 0
+                      const homeGoals = history ? (history.reverse ? readAwayGoals(history.record) : readHomeGoals(history.record)) : 0
+                      const awayGoals = history ? (history.reverse ? readHomeGoals(history.record) : readAwayGoals(history.record)) : 0
                       const previewHomeGoals = history ? homeGoals : liveHomeGoals
                       const previewAwayGoals = history ? awayGoals : liveAwayGoals
                       const historyEvents = history?.record.events ?? []
@@ -3214,7 +3233,13 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                 <article className="rounded-2xl border border-emerald-300/30 bg-emerald-500/10 p-4 lg:col-span-2">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-sm font-semibold text-emerald-100">
-                       Datos finales del partido · {selectedMatchHistory.record.homeTeamName} {selectedMatchHistory.reverse ? selectedMatchHistory.record.awayStats.goals : selectedMatchHistory.record.homeStats.goals} - {selectedMatchHistory.reverse ? selectedMatchHistory.record.homeStats.goals : selectedMatchHistory.record.awayStats.goals} {selectedMatchHistory.record.awayTeamName}
+                      {(() => {
+                        const baseHomeGoals = readHomeGoals(selectedMatchHistory.record)
+                        const baseAwayGoals = readAwayGoals(selectedMatchHistory.record)
+                        const homeGoals = selectedMatchHistory.reverse ? baseAwayGoals : baseHomeGoals
+                        const awayGoals = selectedMatchHistory.reverse ? baseHomeGoals : baseAwayGoals
+                        return `Datos finales del partido · ${selectedMatchHistory.record.homeTeamName} ${homeGoals} - ${awayGoals} ${selectedMatchHistory.record.awayTeamName}`
+                      })()}
                     </p>
                     <span className="rounded-full border border-emerald-300/40 bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-100">
                       Min final: {selectedMatchHistory.record.finalMinute}
@@ -3246,7 +3271,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                     )}
 
                     <div className="mt-3 rounded border border-white/10 bg-slate-950/60 px-2 py-1 text-[11px] text-slate-200">
-                       Resumen guardado: Goles {selectedMatchHistory.record.homeStats.goals + selectedMatchHistory.record.awayStats.goals} · TA {selectedMatchHistory.record.events.filter((event) => event.type === 'yellow' || event.type === 'double_yellow' || event.type === 'staff_yellow').length} · TR {selectedMatchHistory.record.events.filter((event) => event.type === 'red' || event.type === 'double_yellow' || event.type === 'staff_red').length}
+                      Resumen guardado: Goles {readHomeGoals(selectedMatchHistory.record) + readAwayGoals(selectedMatchHistory.record)} · TA {selectedMatchHistory.record.events.filter((event) => event.type === 'yellow' || event.type === 'double_yellow' || event.type === 'staff_yellow').length} · TR {selectedMatchHistory.record.events.filter((event) => event.type === 'red' || event.type === 'double_yellow' || event.type === 'staff_red').length}
                     </div>
                   </div>
                 </article>
