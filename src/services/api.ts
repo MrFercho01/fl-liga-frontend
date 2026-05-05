@@ -38,6 +38,9 @@ const runtimeApiBaseUrl = (() => {
 export const apiBaseUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim() || runtimeApiBaseUrl
 
 let authToken = localStorage.getItem('@fl_liga_auth_token') ?? ''
+let _sessionExpiredCallback: (() => void) | null = null
+
+const SESSION_EXPIRED_CODES = new Set(['SESSION_EXPIRED', 'INACTIVE', 'NO_AUTH', 'NO_USER'])
 
 const buildHeaders = (headers?: HeadersInit): HeadersInit => {
   const base: Record<string, string> = {}
@@ -52,11 +55,17 @@ const buildHeaders = (headers?: HeadersInit): HeadersInit => {
   }
 }
 
-const apiFetch = (url: string, init?: RequestInit) => {
-  return fetch(url, {
+const apiFetch = async (url: string, init?: RequestInit): Promise<Response> => {
+  const response = await fetch(url, {
     ...init,
     headers: buildHeaders(init?.headers),
   })
+
+  if (response.status === 401 && authToken && _sessionExpiredCallback) {
+    _sessionExpiredCallback()
+  }
+
+  return response
 }
 
 const buildValidationErrorMessage = (payload: {
@@ -88,6 +97,10 @@ export const apiService = {
 
   getAuthToken() {
     return authToken
+  },
+
+  onSessionExpired(callback: () => void) {
+    _sessionExpiredCallback = callback
   },
 
   async login(payload: LoginPayload): Promise<ApiResponse<{ token: string; user: AuthUser }>> {
@@ -858,15 +871,11 @@ export const apiService = {
 
   async getLeagueTeams(leagueId: string, categoryId: string): Promise<ApiResponse<RegisteredTeam[]>> {
     try {
-      // Usar solo el endpoint oficial /teams
       const response = await apiFetch(`${apiBaseUrl}/api/admin/leagues/${leagueId}/teams?categoryId=${categoryId}`)
       if (!response.ok) {
         const payload = (await response.json()) as { message?: string, code?: string }
-        // Si la sesión expiró o el usuario está inactivo, forzar logout
-        if (payload.code === 'SESSION_EXPIRED' || payload.code === 'INACTIVE' || payload.code === 'NO_AUTH' || payload.code === 'NO_USER') {
-          apiService.setAuthToken('')
-          window.location.href = '/login'
-          return { ok: false, message: 'Sesión expirada o usuario inactivo. Por favor, vuelve a iniciar sesión.', code: payload.code }
+        if (payload.code && SESSION_EXPIRED_CODES.has(payload.code)) {
+          return { ok: false, message: 'Sesión expirada', code: payload.code }
         }
         return { ok: false, message: payload.message ?? 'No se pudo cargar equipos', code: payload.code }
       }

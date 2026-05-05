@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiService } from '../services/api'
 import type { FixtureResponse, FixtureScheduleEntry, PlayedMatchRecord, RegisteredTeam, RoundAwardsRankingEntry } from '../types/admin.ts'
 import type { League } from '../types/league.ts'
-import { EditIcon, DeleteIcon } from './ActionIcons'
+import { DeleteIcon } from './ActionIcons'
 
 interface AdminTeamsPanelProps {
   leagues: League[]
@@ -313,6 +313,8 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     assistantName: string
     assistantPhotoUrl: string
   }>>({})
+  const [teamSaveMsg, setTeamSaveMsg] = useState<Record<string, { text: string; ok: boolean }>>({})
+  const [playerSaveMsg, setPlayerSaveMsg] = useState<Record<string, { text: string; ok: boolean }>>({})
   const [playerEditById, setPlayerEditById] = useState<Record<string, PlayerDraft>>({})
   const [playerReplacementByTeam, setPlayerReplacementByTeam] = useState<Record<string, { enabled: boolean; replacePlayerId: string }>>({})
 
@@ -333,6 +335,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [playedMatchesRecords, setPlayedMatchesRecords] = useState<PlayedMatchRecord[]>([])
   const [isSavingFixtureRound, setIsSavingFixtureRound] = useState(false)
   const [isRefreshingFixture, setIsRefreshingFixture] = useState(false)
+  const [fixtureActionMsg, setFixtureActionMsg] = useState<{ text: string; ok: boolean } | null>(null)
   const [mobileLogoOnlyMode, setMobileLogoOnlyMode] = useState(true)
   const [mvpMobileLogoOnlyMode, setMvpMobileLogoOnlyMode] = useState(true)
 
@@ -383,6 +386,11 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const showMessage = (value: string) => {
     setMessage(value)
     window.setTimeout(() => setMessage(''), 3000)
+  }
+
+  const showFixtureMessage = (text: string, ok = false) => {
+    setFixtureActionMsg({ text, ok })
+    window.setTimeout(() => setFixtureActionMsg((current) => (current?.text === text ? null : current)), 3000)
   }
 
   const latestSeason = useMemo(() => {
@@ -459,7 +467,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
           current && availableRounds.includes(Number(current)) ? current : String(availableRounds[0]),
         )
       } else {
-        setSelectedFixtureRound('')
+        setSelectedFixtureRound('1')
       }
     } else {
       setFixture(null)
@@ -655,13 +663,29 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   }, [teams])
 
   const fixtureRounds = useMemo(() => {
-    return Array.from(new Set(fixtureMatches.map((match) => match.round))).sort((a, b) => a - b)
-  }, [fixtureMatches])
+    const rounds = new Set<number>()
+
+    fixtureMatches.forEach((match) => {
+      if (match.round > 0) rounds.add(match.round)
+    })
+
+    fixtureScheduleEntries.forEach((entry) => {
+      if (entry.round > 0) rounds.add(entry.round)
+    })
+
+    Object.keys(fixtureDraftMatchesByRound).forEach((roundKey) => {
+      const round = Number(roundKey)
+      if (round > 0) rounds.add(round)
+    })
+
+    const sortedRounds = Array.from(rounds).sort((a, b) => a - b)
+    return sortedRounds.length > 0 ? sortedRounds : [1]
+  }, [fixtureDraftMatchesByRound, fixtureMatches, fixtureScheduleEntries])
 
   const activeFixtureRound =
     selectedFixtureRound && fixtureRounds.includes(Number(selectedFixtureRound))
       ? Number(selectedFixtureRound)
-      : (fixtureRounds[0] ?? 0)
+      : (fixtureRounds[0] ?? 1)
 
   const fixtureMatchesByRound = useMemo(() => {
     return fixtureMatches.filter((match) => match.round === activeFixtureRound)
@@ -1106,22 +1130,25 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   }, [digitalCardTeam])
 
   const addDraftMatchToRound = () => {
-    if (!activeFixtureRound) return
+    if (!activeFixtureRound) {
+      showFixtureMessage('Selecciona una fecha antes de agregar partido', false)
+      return
+    }
     if (!draftMatchHomeTeamId || !draftMatchAwayTeamId) {
-      showMessage('Selecciona local y visitante para agregar el partido')
+      showFixtureMessage('Selecciona local y visitante para agregar el partido', false)
       return
     }
     if (draftMatchHomeTeamId === draftMatchAwayTeamId) {
-      showMessage('Local y visitante no pueden ser el mismo equipo')
+      showFixtureMessage('Local y visitante no pueden ser el mismo equipo', false)
       return
     }
     if (!draftMatchScheduledAt) {
-      showMessage('Selecciona fecha y hora de inicio para el partido')
+      showFixtureMessage('Selecciona fecha y hora de inicio para el partido', false)
       return
     }
 
     if (activeCategoryCourtsCount > 1 && !draftMatchVenue.trim()) {
-      showMessage('Indica la cancha para este partido')
+      showFixtureMessage('Indica la cancha para este partido', false)
       return
     }
 
@@ -1131,7 +1158,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
         (match.homeTeamId === draftMatchAwayTeamId && match.awayTeamId === draftMatchHomeTeamId),
     )
     if (existingPair) {
-      showMessage('Este cruce ya está agregado en la fecha')
+      showFixtureMessage('Este cruce ya está agregado en la fecha', false)
       return
     }
 
@@ -1151,7 +1178,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     setDraftMatchHomeTeamId('')
     setDraftMatchAwayTeamId('')
     setDraftMatchVenue('')
-    showMessage(`Partido agregado al borrador de Fecha ${activeFixtureRound}`)
+    showFixtureMessage(`Partido agregado al borrador de Fecha ${activeFixtureRound}`, true)
   }
 
   const updateDraftMatchInRound = (draftId: string, patch: Partial<FixtureDraftMatch>) => {
@@ -1165,22 +1192,29 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   }
 
   const deleteDraftMatchInRound = (draftId: string) => {
-    if (!activeFixtureRound) return
+    if (!activeFixtureRound) {
+      showFixtureMessage('Selecciona una fecha antes de eliminar partido', false)
+      return
+    }
     setFixtureDraftMatchesByRound((current) => ({
       ...current,
       [activeFixtureRound]: (current[activeFixtureRound] ?? []).filter((item) => item.id !== draftId),
     }))
+    showFixtureMessage(`Partido eliminado del borrador de Fecha ${activeFixtureRound}`, true)
   }
 
   const publishDraftRoundMatches = async () => {
     if (isSavingFixtureRound) return
     if (isReadOnlySeason) {
-      showMessage('Temporada histórica: solo lectura')
+      showFixtureMessage('Temporada histórica: solo lectura', false)
       return
     }
-    if (!selectedLeague || !activeCategoryId || !activeFixtureRound) return
+    if (!selectedLeague || !activeCategoryId || !activeFixtureRound) {
+      showFixtureMessage('Selecciona categoría y fecha antes de guardar', false)
+      return
+    }
     if (activeRoundDraftMatches.length === 0) {
-      showMessage('No hay partidos en borrador para guardar')
+      showFixtureMessage('No hay partidos en borrador para guardar', false)
       return
     }
     const fixtureMatchByPair = new Map<string, { id: string }>()
@@ -1203,7 +1237,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
         if (!scheduledAt) {
           const homeName = teamMap.get(draft.homeTeamId)?.name ?? 'Local'
           const awayName = teamMap.get(draft.awayTeamId)?.name ?? 'Visitante'
-          showMessage(`Falta fecha/hora en ${homeName} vs ${awayName}`)
+          showFixtureMessage(`Falta fecha/hora en ${homeName} vs ${awayName}`, false)
           return
         }
 
@@ -1215,7 +1249,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
         })
 
         if (!response.ok) {
-          showMessage(response.message)
+          showFixtureMessage(response.message, false)
           return
         }
 
@@ -1237,7 +1271,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
         const deleteResponse = await apiService.deleteFixtureSchedule(selectedLeague.id, entry.matchId, activeCategoryId)
         if (!deleteResponse.ok) {
-          showMessage(deleteResponse.message)
+          showFixtureMessage(deleteResponse.message, false)
           return
         }
       }
@@ -1248,16 +1282,19 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       }))
 
       await loadFixture()
-      showMessage(`Fecha ${activeFixtureRound} guardada correctamente`)
+      showFixtureMessage(`Fecha ${activeFixtureRound} guardada correctamente`, true)
     } finally {
       setIsSavingFixtureRound(false)
     }
   }
 
   const editPublishedRoundMatches = () => {
-    if (!activeFixtureRound) return
+    if (!activeFixtureRound) {
+      showFixtureMessage('Selecciona una fecha antes de editar fixture guardado', false)
+      return
+    }
     if (scheduledRoundMatches.length === 0) {
-      showMessage('No hay partidos guardados para editar en esta fecha')
+      showFixtureMessage('No hay partidos guardados para editar en esta fecha', false)
       return
     }
 
@@ -1274,7 +1311,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       ...current,
       [activeFixtureRound]: draftItems,
     }))
-    showMessage(`Fixture de Fecha ${activeFixtureRound} cargado para edición`)
+    showFixtureMessage(`Fixture de Fecha ${activeFixtureRound} cargado para edición`, true)
   }
 
   const projectedFreeTeam = useMemo(() => {
@@ -1316,7 +1353,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     try {
       await loadFixture()
       if (notify) {
-        showMessage('Fixture actualizado desde el servidor')
+        showFixtureMessage('Fixture actualizado desde el servidor', true)
       }
     } finally {
       setIsRefreshingFixture(false)
@@ -1991,13 +2028,32 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       [teamId]: { enabled: false, replacePlayerId: '' },
     }))
     showMessage(replacementConfig.enabled ? 'Reemplazo por lesión registrado' : 'Jugador agregado')
-    await loadTeams()
-    // Forzar refresco de selectedTeam tras agregar jugador
-    setSelectedTeamId('')
-    setTimeout(() => {
-      setSelectedTeamId(teamId)
-      setPlayerPage(1)
-    }, 0)
+    setTeams((current) => current.map((t) => {
+      if (t.id !== teamId) return t
+
+      const payload = response.data as unknown
+
+      if (
+        payload &&
+        typeof payload === 'object' &&
+        Array.isArray((payload as RegisteredTeam).players)
+      ) {
+        return payload as RegisteredTeam
+      }
+
+      if (payload && typeof payload === 'object') {
+        const createdPlayer = payload as RegisteredTeam['players'][number]
+        const playerAlreadyExists = t.players.some((player) => player.id === createdPlayer.id)
+        if (playerAlreadyExists) {
+          return t
+        }
+
+        return { ...t, players: [...t.players, createdPlayer] }
+      }
+
+      return t
+    }))
+    setPlayerPage(1)
   }
 
   const updateTeamEdit = (
@@ -2021,17 +2077,29 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     }))
   }
 
+  const showTeamMsg = (teamId: string, text: string, ok: boolean) => {
+    setTeamSaveMsg((current) => ({ ...current, [teamId]: { text, ok } }))
+    window.setTimeout(() => setTeamSaveMsg((current) => {
+      const next = { ...current }
+      delete next[teamId]
+      return next
+    }), 3000)
+  }
+
   const saveTeamEdit = async (team: RegisteredTeam) => {
     if (isReadOnlySeason) {
-      showMessage('Temporada histórica: solo lectura')
+      showTeamMsg(team.id, 'Temporada histórica: solo lectura', false)
       return
     }
 
     const edit = teamEditById[team.id]
-    if (!edit) return
+    if (!edit) {
+      showTeamMsg(team.id, 'Sin cambios pendientes', false)
+      return
+    }
 
     if (!edit.directorName.trim() || !edit.assistantName.trim()) {
-      showMessage('Cada equipo debe tener 1 DT y 1 AT')
+      showTeamMsg(team.id, 'Cada equipo debe tener 1 DT y 1 AT', false)
       return
     }
 
@@ -2053,17 +2121,18 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     })
 
     if (!response.ok) {
-      showMessage(response.message)
+      showTeamMsg(team.id, response.message || 'Error al guardar', false)
       return
     }
 
-    showMessage('Equipo actualizado')
+    showTeamMsg(team.id, '✓ Equipo actualizado', true)
     setTeamEditById((current) => {
       const next = { ...current }
       delete next[team.id]
       return next
     })
-    await loadTeams()
+    // Actualizar el equipo directamente en el array de teams con los datos del backend
+    setTeams((current) => current.map((t) => t.id === team.id ? response.data : t))
   }
 
   const toggleTeamActive = async (team: RegisteredTeam, nextActive: boolean) => {
@@ -2137,9 +2206,18 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     }))
   }
 
+  const showPlayerMsg = (key: string, text: string, ok: boolean) => {
+    setPlayerSaveMsg((current) => ({ ...current, [key]: { text, ok } }))
+    window.setTimeout(() => setPlayerSaveMsg((current) => {
+      const next = { ...current }
+      delete next[key]
+      return next
+    }), 3000)
+  }
+
   const savePlayerEdit = async (teamId: string, playerId: string, currentPlayer: PlayerDraft) => {
     if (isReadOnlySeason) {
-      showMessage('Temporada histórica: solo lectura')
+      showPlayerMsg(`${teamId}:${playerId}`, 'Temporada histórica: solo lectura', false)
       return
     }
 
@@ -2156,12 +2234,18 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     })
 
     if (!response.ok) {
-      showMessage(response.message)
+      showPlayerMsg(`${teamId}:${playerId}`, response.message || 'Error al guardar', false)
       return
     }
 
-    showMessage('Jugador actualizado')
-    await loadTeams()
+    showPlayerMsg(`${teamId}:${playerId}`, '✓ Guardado', true)
+    setPlayerEditById((current) => {
+      const next = { ...current }
+      delete next[`${teamId}:${playerId}`]
+      return next
+    })
+    // Actualizar directamente el equipo en el array con la respuesta del backend
+    setTeams((current) => current.map((t) => t.id === teamId ? response.data : t))
   }
 
   const requestDeleteLeague = () => {
@@ -2354,37 +2438,102 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
         <div className="mt-4 rounded-xl border border-white/10 bg-slate-900/60 p-4">
           <p className="text-sm font-semibold text-white">Crear liga</p>
           <p className="mt-1 text-xs text-slate-400">La nueva liga se crea con dueño Super Admin.</p>
-          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-9">
-            <input value={newLeagueName} onChange={(event) => setNewLeagueName(event.target.value)} placeholder="Nombre de la liga" className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white" />
-            <input value={newLeagueCountry} onChange={(event) => setNewLeagueCountry(event.target.value)} placeholder="País" className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white" />
-            <input type="number" min={2020} max={2100} value={newLeagueSeason} onChange={(event) => setNewLeagueSeason(Number(event.target.value) || 2026)} placeholder="Temporada" className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white" />
-            <input value={newLeagueSlogan} onChange={(event) => setNewLeagueSlogan(event.target.value)} placeholder="Slogan (opcional)" className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white" />
-            <label className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-slate-200">Color fondo (opcional)
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-12">
+            <input
+              value={newLeagueName}
+              onChange={(event) => setNewLeagueName(event.target.value)}
+              placeholder="Nombre de la liga"
+              className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white lg:col-span-2 xl:col-span-3"
+            />
+            <input
+              value={newLeagueCountry}
+              onChange={(event) => setNewLeagueCountry(event.target.value)}
+              placeholder="País"
+              className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white lg:col-span-1 xl:col-span-2"
+            />
+            <input
+              type="number"
+              min={2020}
+              max={2100}
+              value={newLeagueSeason}
+              onChange={(event) => setNewLeagueSeason(Number(event.target.value) || 2026)}
+              placeholder="Temporada"
+              className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white lg:col-span-1 xl:col-span-1"
+            />
+            <input
+              value={newLeagueSlogan}
+              onChange={(event) => setNewLeagueSlogan(event.target.value)}
+              placeholder="Slogan (opcional)"
+              className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white lg:col-span-2 xl:col-span-2"
+            />
+            <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200 lg:col-span-1 xl:col-span-1">
+              Color fondo
               <input type="color" value={newLeagueThemeColor || '#020617'} onChange={(event) => setNewLeagueThemeColor(event.target.value)} className="mt-1 block h-8 w-full" />
             </label>
-            <label className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-slate-200">
-              Imagen de fondo (opcional)
-              <input type="file" accept="image/*" className="mt-1 block w-full text-xs" onChange={async (event) => {
-                const file = event.target.files?.[0]
-                if (!file) return
-                setNewLeagueBackgroundImageUrl(await toDataUrl(file))
-              }} />
-            </label>
-            <select value={newLeagueCategoryKey} onChange={(event) => setNewLeagueCategoryKey(event.target.value)} className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white">
+            <select value={newLeagueCategoryKey} onChange={(event) => setNewLeagueCategoryKey(event.target.value)} className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white lg:col-span-1 xl:col-span-1">
               {categoryTemplates.map((category) => (
                 <option key={category.key} value={category.key}>{category.name}</option>
               ))}
             </select>
-            <label className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-slate-200">
-              Logo liga
-              <input type="file" accept="image/*" className="mt-1 block w-full text-xs" onChange={async (event) => {
-                const file = event.target.files?.[0]
-                if (!file) return
-                setNewLeagueLogoUrl(await toDataUrl(file))
-              }} />
+            <label className="flex cursor-pointer items-center justify-center gap-2 rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs font-medium text-slate-200 hover:border-white/40 lg:col-span-1 xl:col-span-1">
+              <span>{newLeagueBackgroundImageUrl ? 'Cambiar fondo' : 'Imagen fondo'}</span>
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (!file) return
+                  void toDataUrl(file)
+                    .then((imageUrl) => setNewLeagueBackgroundImageUrl(imageUrl))
+                    .catch(() => showMessage('No se pudo leer la imagen de fondo'))
+                }}
+              />
             </label>
-            <button type="button" onClick={handleCreateLeague} className="rounded bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-500">Crear liga</button>
+            <label className="flex cursor-pointer items-center justify-center gap-2 rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs font-medium text-slate-200 hover:border-white/40 lg:col-span-1 xl:col-span-1">
+              <span>{newLeagueLogoUrl ? 'Cambiar logo' : 'Logo liga'}</span>
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (!file) return
+                  void toDataUrl(file)
+                    .then((logoUrl) => setNewLeagueLogoUrl(logoUrl))
+                    .catch(() => showMessage('No se pudo leer el logo de la liga'))
+                }}
+              />
+            </label>
+            <button type="button" onClick={handleCreateLeague} className="rounded bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-500 lg:col-span-2 xl:col-span-2">Crear liga</button>
           </div>
+
+          {(newLeagueBackgroundImageUrl || newLeagueLogoUrl) && (
+            <div className="mt-2 grid grid-cols-1 gap-2 rounded border border-emerald-300/30 bg-emerald-500/10 p-2 sm:grid-cols-2">
+              <div className="rounded border border-white/10 bg-slate-900/50 p-2 text-center">
+                <p className="text-[11px] text-slate-300">Preview fondo</p>
+                {newLeagueBackgroundImageUrl ? (
+                  <>
+                    <img src={newLeagueBackgroundImageUrl} alt="Fondo liga" className="mx-auto mt-1 h-16 w-full rounded border border-emerald-300/50 object-cover" />
+                    <button type="button" onClick={() => setNewLeagueBackgroundImageUrl('')} className="mt-1 text-[10px] text-rose-300 hover:underline">Quitar</button>
+                  </>
+                ) : (
+                  <p className="mt-3 text-[10px] text-slate-500">Sin imagen</p>
+                )}
+              </div>
+              <div className="rounded border border-white/10 bg-slate-900/50 p-2 text-center">
+                <p className="text-[11px] text-slate-300">Preview logo</p>
+                {newLeagueLogoUrl ? (
+                  <>
+                    <img src={newLeagueLogoUrl} alt="Logo liga" className="mx-auto mt-1 h-16 w-16 rounded border border-emerald-300/50 bg-white object-contain p-1" />
+                    <button type="button" onClick={() => setNewLeagueLogoUrl('')} className="mt-1 text-[10px] text-rose-300 hover:underline">Quitar</button>
+                  </>
+                ) : (
+                  <p className="mt-3 text-[10px] text-slate-500">Sin imagen</p>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {selectedLeague && (
@@ -2392,8 +2541,6 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                 Eliminar liga seleccionada
               </button>
             )}
-            {newLeagueBackgroundImageUrl && <img src={newLeagueBackgroundImageUrl} alt="Fondo liga" className="h-12 w-20 rounded border border-white/20 object-cover" />}
-            {newLeagueLogoUrl && <img src={newLeagueLogoUrl} alt="Logo liga" className="h-12 w-12 rounded border border-white/20 bg-white object-contain p-1" />}
           </div>
 
           {selectedLeague && (
@@ -2402,7 +2549,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
               {isReadOnlySeason && (
                 <p className="mb-2 text-[11px] text-amber-200">Temporada histórica: solo lectura.</p>
               )}
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-7">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-10">
                 <input disabled={isReadOnlySeason} value={leagueEditById[selectedLeague.id]?.name ?? selectedLeague.name} onChange={(event) => updateLeagueEdit(selectedLeague, { name: event.target.value })} className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-60" />
                 <input disabled={isReadOnlySeason} value={leagueEditById[selectedLeague.id]?.country ?? selectedLeague.country} onChange={(event) => updateLeagueEdit(selectedLeague, { country: event.target.value })} className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-60" />
                 <input disabled={isReadOnlySeason} type="number" min={2020} max={2100} value={leagueEditById[selectedLeague.id]?.season ?? selectedLeague.season} onChange={(event) => updateLeagueEdit(selectedLeague, { season: Number(event.target.value) || selectedLeague.season })} className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-60" />
@@ -2410,31 +2557,71 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                 <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">Color fondo
                   <input disabled={isReadOnlySeason} type="color" value={leagueEditById[selectedLeague.id]?.themeColor ?? selectedLeague.themeColor ?? '#020617'} onChange={(event) => updateLeagueEdit(selectedLeague, { themeColor: event.target.value })} className="mt-1 block h-7 w-full disabled:opacity-60" />
                 </label>
-                <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">Imagen fondo
-                  <input disabled={isReadOnlySeason} type="file" accept="image/*" className="mt-1 block w-full disabled:opacity-60" onChange={async (event) => {
-                    const file = event.target.files?.[0]
-                    if (!file) return
-                    updateLeagueEdit(selectedLeague, { backgroundImageUrl: await toDataUrl(file) })
-                  }} />
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-200 hover:border-white/40 disabled:cursor-not-allowed disabled:opacity-60">
+                  <span>{(leagueEditById[selectedLeague.id]?.backgroundImageUrl ?? selectedLeague.backgroundImageUrl) ? 'Cambiar fondo' : 'Imagen fondo'}</span>
+                  <input
+                    disabled={isReadOnlySeason}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (!file) return
+                      void toDataUrl(file)
+                        .then((imageUrl) => updateLeagueEdit(selectedLeague, { backgroundImageUrl: imageUrl }))
+                        .catch(() => showMessage('No se pudo leer la imagen de fondo'))
+                    }}
+                  />
                 </label>
-                <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">Logo
-                  <input disabled={isReadOnlySeason} type="file" accept="image/*" className="mt-1 block w-full disabled:opacity-60" onChange={async (event) => {
-                    const file = event.target.files?.[0]
-                    if (!file) return
-                    updateLeagueEdit(selectedLeague, { logoUrl: await toDataUrl(file) })
-                  }} />
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-200 hover:border-white/40 disabled:cursor-not-allowed disabled:opacity-60">
+                  <span>{(leagueEditById[selectedLeague.id]?.logoUrl ?? selectedLeague.logoUrl) ? 'Cambiar logo' : 'Logo'}</span>
+                  <input
+                    disabled={isReadOnlySeason}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (!file) return
+                      void toDataUrl(file)
+                        .then((logoUrl) => updateLeagueEdit(selectedLeague, { logoUrl }))
+                        .catch(() => showMessage('No se pudo leer el logo de la liga'))
+                    }}
+                  />
                 </label>
+                <button type="button" disabled={isReadOnlySeason} onClick={() => void saveLeagueEdit(selectedLeague)} className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-1 text-xs font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60">
+                  Guardar cambios rápidos
+                </button>
               </div>
-              {(leagueEditById[selectedLeague.id]?.backgroundImageUrl ?? selectedLeague.backgroundImageUrl) && (
-                <img
-                  src={leagueEditById[selectedLeague.id]?.backgroundImageUrl ?? selectedLeague.backgroundImageUrl}
-                  alt="Fondo actual"
-                  className="mt-2 h-16 w-full rounded border border-white/10 object-cover"
-                />
+
+              {((leagueEditById[selectedLeague.id]?.backgroundImageUrl ?? selectedLeague.backgroundImageUrl) || (leagueEditById[selectedLeague.id]?.logoUrl ?? selectedLeague.logoUrl)) && (
+                <div className="mt-2 grid grid-cols-1 gap-2 rounded border border-primary-300/20 bg-primary-500/5 p-2 sm:grid-cols-2">
+                  <div className="rounded border border-white/10 bg-slate-900/50 p-2 text-center">
+                    <p className="text-[11px] text-slate-300">Fondo actual</p>
+                    {(leagueEditById[selectedLeague.id]?.backgroundImageUrl ?? selectedLeague.backgroundImageUrl) ? (
+                      <img
+                        src={leagueEditById[selectedLeague.id]?.backgroundImageUrl ?? selectedLeague.backgroundImageUrl}
+                        alt="Fondo actual"
+                        className="mt-1 h-16 w-full rounded border border-white/10 object-cover"
+                      />
+                    ) : (
+                      <p className="mt-3 text-[10px] text-slate-500">Sin imagen</p>
+                    )}
+                  </div>
+                  <div className="rounded border border-white/10 bg-slate-900/50 p-2 text-center">
+                    <p className="text-[11px] text-slate-300">Logo actual</p>
+                    {(leagueEditById[selectedLeague.id]?.logoUrl ?? selectedLeague.logoUrl) ? (
+                      <img
+                        src={leagueEditById[selectedLeague.id]?.logoUrl ?? selectedLeague.logoUrl}
+                        alt="Logo actual"
+                        className="mx-auto mt-1 h-16 w-16 rounded border border-white/10 bg-white object-contain p-1"
+                      />
+                    ) : (
+                      <p className="mt-3 text-[10px] text-slate-500">Sin imagen</p>
+                    )}
+                  </div>
+                </div>
               )}
-              <button type="button" disabled={isReadOnlySeason} onClick={() => void saveLeagueEdit(selectedLeague)} className="mt-2 rounded border border-primary-300/40 bg-primary-500/20 px-2 py-1 text-xs font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60">
-                Guardar cambios rápidos
-              </button>
             </div>
           )}
 
@@ -2500,51 +2687,154 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   Temporada {selectedLeague.season} en modo lectura.
                 </p>
               )}
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-8">
-                <select value={activeCategoryId} onChange={(event) => {
-                  setSelectedCategoryId(event.target.value)
-                  setSelectedTeamId('')
-                  setTeamSearch('')
-                  setTeamPage(1)
-                }} className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-12">
+                <select
+                  value={activeCategoryId}
+                  onChange={(event) => {
+                    setSelectedCategoryId(event.target.value)
+                    setSelectedTeamId('')
+                    setTeamSearch('')
+                    setTeamPage(1)
+                  }}
+                  className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white lg:col-span-1 xl:col-span-2"
+                >
                   {categoryOptions.map((category) => (
                     <option key={category.id} value={category.id}>{category.name}</option>
                   ))}
                 </select>
-                <input value={teamName} onChange={(event) => setTeamName(event.target.value)} placeholder="Nombre del equipo" className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white" />
-                <label className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-slate-200">Logo equipo
-                  <input type="file" accept="image/*" className="mt-1 block w-full text-xs" onChange={async (event) => {
-                    const file = event.target.files?.[0]
-                    if (!file) return
-                    setTeamLogoUrl(await toDataUrl(file))
-                  }} />
+                <input
+                  value={teamName}
+                  onChange={(event) => setTeamName(event.target.value)}
+                  placeholder="Nombre del equipo"
+                  className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white lg:col-span-2 xl:col-span-3"
+                />
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs font-medium text-slate-200 hover:border-white/40 lg:col-span-1 xl:col-span-2">
+                  <span>{teamLogoUrl ? 'Cambiar logo' : 'Cargar logo'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (!file) return
+                      void toDataUrl(file)
+                        .then((imageUrl) => setTeamLogoUrl(imageUrl))
+                        .catch(() => showMessage('No se pudo leer el logo del equipo'))
+                    }}
+                  />
                 </label>
-                <label className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-slate-200">Color principal *
+                <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200 lg:col-span-1 xl:col-span-1">
+                  Color principal *
                   <input type="color" value={teamPrimaryColor} onChange={(event) => setTeamPrimaryColor(event.target.value)} className="mt-1 block h-8 w-full" />
                 </label>
-                <label className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-slate-200">Color alterno (opcional)
+                <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200 lg:col-span-1 xl:col-span-1">
+                  Color alterno
                   <input type="color" value={teamSecondaryColor} onChange={(event) => setTeamSecondaryColor(event.target.value)} className="mt-1 block h-8 w-full" />
                 </label>
-                <input value={teamDirectorDraft.name} onChange={(event) => setTeamDirectorDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Director Técnico" className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white" />
-                <label className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs text-slate-200">Foto DT
-                  <input type="file" accept="image/*" className="mt-1 block w-full text-xs" onChange={async (event) => {
-                    const file = event.target.files?.[0]
-                    if (!file) return
-                    const photoUrl = await toDataUrl(file)
-                    setTeamDirectorDraft((current) => ({ ...current, photoUrl }))
-                  }} />
-                </label>
-                <input value={teamAssistantDraft.name} onChange={(event) => setTeamAssistantDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Asistente Técnico" className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white" />
-                <label className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs text-slate-200">Foto AT
-                  <input type="file" accept="image/*" className="mt-1 block w-full text-xs" onChange={async (event) => {
-                    const file = event.target.files?.[0]
-                    if (!file) return
-                    const photoUrl = await toDataUrl(file)
-                    setTeamAssistantDraft((current) => ({ ...current, photoUrl }))
-                  }} />
-                </label>
-                <button type="button" onClick={handleCreateTeam} disabled={loading || isReadOnlySeason} className="rounded bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-500 disabled:cursor-not-allowed disabled:opacity-60">Crear equipo</button>
+                <button
+                  type="button"
+                  onClick={handleCreateTeam}
+                  disabled={loading || isReadOnlySeason}
+                  className="rounded bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-500 disabled:cursor-not-allowed disabled:opacity-60 lg:col-span-1 xl:col-span-3"
+                >
+                  Crear equipo
+                </button>
               </div>
+
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                <input
+                  value={teamDirectorDraft.name}
+                  onChange={(event) => setTeamDirectorDraft((current) => ({ ...current, name: event.target.value }))}
+                  placeholder="Director Técnico"
+                  className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white"
+                />
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs font-medium text-slate-200 hover:border-white/40">
+                  <span>{teamDirectorDraft.photoUrl ? 'Cambiar foto DT' : 'Foto DT'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (!file) return
+                      void toDataUrl(file)
+                        .then((photoUrl) => setTeamDirectorDraft((current) => ({ ...current, photoUrl })))
+                        .catch(() => showMessage('No se pudo leer la foto del DT'))
+                    }}
+                  />
+                </label>
+                <input
+                  value={teamAssistantDraft.name}
+                  onChange={(event) => setTeamAssistantDraft((current) => ({ ...current, name: event.target.value }))}
+                  placeholder="Asistente Técnico"
+                  className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white"
+                />
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs font-medium text-slate-200 hover:border-white/40">
+                  <span>{teamAssistantDraft.photoUrl ? 'Cambiar foto AT' : 'Foto AT'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (!file) return
+                      void toDataUrl(file)
+                        .then((photoUrl) => setTeamAssistantDraft((current) => ({ ...current, photoUrl })))
+                        .catch(() => showMessage('No se pudo leer la foto del AT'))
+                    }}
+                  />
+                </label>
+              </div>
+
+              {(teamLogoUrl || teamDirectorDraft.photoUrl || teamAssistantDraft.photoUrl) && (
+                <div className="mt-2 grid grid-cols-1 gap-2 rounded border border-emerald-300/30 bg-emerald-500/10 p-2 sm:grid-cols-3">
+                  <div className="rounded border border-white/10 bg-slate-900/50 p-2 text-center">
+                    <p className="text-[11px] text-slate-300">Logo equipo</p>
+                    {teamLogoUrl ? (
+                      <>
+                        <img src={teamLogoUrl} alt="Preview logo" className="mx-auto mt-1 h-16 w-16 rounded object-cover border border-emerald-300/50" />
+                        <button type="button" onClick={() => setTeamLogoUrl('')} className="mt-1 text-[10px] text-rose-300 hover:underline">Quitar</button>
+                      </>
+                    ) : (
+                      <p className="mt-3 text-[10px] text-slate-500">Sin imagen</p>
+                    )}
+                  </div>
+                  <div className="rounded border border-white/10 bg-slate-900/50 p-2 text-center">
+                    <p className="text-[11px] text-slate-300">Foto DT</p>
+                    {teamDirectorDraft.photoUrl ? (
+                      <>
+                        <img src={teamDirectorDraft.photoUrl} alt="Preview DT" className="mx-auto mt-1 h-16 w-16 rounded-full object-cover border border-emerald-300/50" />
+                        <button
+                          type="button"
+                          onClick={() => setTeamDirectorDraft((current) => ({ ...current, photoUrl: '' }))}
+                          className="mt-1 text-[10px] text-rose-300 hover:underline"
+                        >
+                          Quitar
+                        </button>
+                      </>
+                    ) : (
+                      <p className="mt-3 text-[10px] text-slate-500">Sin imagen</p>
+                    )}
+                  </div>
+                  <div className="rounded border border-white/10 bg-slate-900/50 p-2 text-center">
+                    <p className="text-[11px] text-slate-300">Foto AT</p>
+                    {teamAssistantDraft.photoUrl ? (
+                      <>
+                        <img src={teamAssistantDraft.photoUrl} alt="Preview AT" className="mx-auto mt-1 h-16 w-16 rounded-full object-cover border border-emerald-300/50" />
+                        <button
+                          type="button"
+                          onClick={() => setTeamAssistantDraft((current) => ({ ...current, photoUrl: '' }))}
+                          className="mt-1 text-[10px] text-rose-300 hover:underline"
+                        >
+                          Quitar
+                        </button>
+                      </>
+                    ) : (
+                      <p className="mt-3 text-[10px] text-slate-500">Sin imagen</p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <input
@@ -2559,37 +2849,37 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                 <p className="text-[11px] text-slate-400">{filteredTeams.length} equipos</p>
               </div>
 
-              <div className="mt-4 overflow-x-auto">
+              <div className="mt-3 overflow-x-auto rounded-lg border border-white/10 bg-slate-950/20">
                 {loading && <p className="text-sm text-slate-300">Cargando equipos...</p>}
                 {!loading && teamPagination.pageItems.length === 0 && <p className="text-sm text-slate-300">No hay equipos en esta categoría.</p>}
                 {teamPagination.pageItems.length > 0 && (
-                  <table className="min-w-full text-xs text-slate-200 border border-white/10 rounded-xl overflow-hidden">
+                  <table className="min-w-full border border-white/10 text-xs text-slate-200">
                     <thead className="bg-slate-800/80">
                       <tr>
-                        <th className="p-2">Logo</th>
-                        <th className="p-2">Nombre</th>
-                        <th className="p-2">DT</th>
-                        <th className="p-2">AT</th>
-                        <th className="p-2">Color principal</th>
-                        <th className="p-2">Color alterno</th>
-                        <th className="p-2 text-center align-middle">Estado</th>
-                        <th className="p-2 text-center align-middle">Acciones</th>
+                        <th className="px-2 py-1.5 text-[11px] font-semibold">Logo</th>
+                        <th className="px-2 py-1.5 text-[11px] font-semibold">Nombre</th>
+                        <th className="px-2 py-1.5 text-[11px] font-semibold">DT</th>
+                        <th className="px-2 py-1.5 text-[11px] font-semibold">AT</th>
+                        <th className="px-2 py-1.5 text-[11px] font-semibold">Color principal</th>
+                        <th className="px-2 py-1.5 text-[11px] font-semibold">Color alterno</th>
+                        <th className="px-2 py-1.5 text-center align-middle text-[11px] font-semibold">Estado</th>
+                        <th className="px-2 py-1.5 text-center align-middle text-[11px] font-semibold">Acciones</th>
                       </tr>
                     </thead>
                     <tbody>
                       {teamPagination.pageItems.map((team) => (
-                        <tr key={team.id} className={(team.active === false ? 'bg-amber-950/20' : 'bg-slate-900/60') + ' items-center'}>
-                          <td className="p-2 text-center align-middle">
+                        <tr key={team.id} className={(team.active === false ? 'bg-amber-950/20' : 'bg-slate-900/60') + ' items-center border-t border-white/5'}>
+                          <td className="px-2 py-1.5 text-center align-middle">
                             <label className="cursor-pointer">
                               {teamEditById[team.id]?.logoUrl || team.logoUrl ? (
                                 <img
                                   src={teamEditById[team.id]?.logoUrl || team.logoUrl}
                                   alt={team.name}
-                                  className="h-8 w-8 rounded border border-white/20 bg-white object-contain mx-auto"
+                                  className="mx-auto h-7 w-7 rounded border border-white/20 bg-white object-contain"
                                   onClick={() => document.getElementById(`team-logo-input-${team.id}`)?.click()}
                                 />
                               ) : (
-                                <span className="flex h-8 w-8 rounded border border-white/20 bg-slate-700 text-slate-400 items-center justify-center cursor-pointer" onClick={() => document.getElementById(`team-logo-input-${team.id}`)?.click()}>—</span>
+                                <span className="flex h-7 w-7 cursor-pointer items-center justify-center rounded border border-white/20 bg-slate-700 text-slate-400" onClick={() => document.getElementById(`team-logo-input-${team.id}`)?.click()}>—</span>
                               )}
                               <input
                                 id={`team-logo-input-${team.id}`}
@@ -2618,18 +2908,22 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                               />
                             </label>
                           </td>
-                          <td className="p-2 font-semibold align-middle">
+                          <td className="px-2 py-1.5 font-semibold align-middle">
                             <input value={teamEditById[team.id]?.name ?? team.name} onChange={(event) => updateTeamEdit(team, 'name', event.target.value)} className="w-full rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
                           </td>
-                          <td className="p-2 text-center align-middle">
-                            <div className="flex items-center gap-2 w-full min-w-[120px]">
+                          <td className="px-2 py-1.5 text-center align-middle">
+                            <div className="flex w-full min-w-[108px] items-center gap-1.5">
                               <label className="cursor-pointer flex-shrink-0">
-                                <img
-                                  src={teamEditById[team.id]?.directorPhotoUrl || team.technicalStaff?.director?.photoUrl || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2228%22 height=%2228%22><rect width=%2228%22 height=%2228%22 rx=%2214%22 fill=%22%233b4252%22/><text x=%2250%25%22 y=%2255%25%22 text-anchor=%22middle%22 fill=%22%23cbd5e1%22 font-size=%2212%22 font-family=%22Arial%22 dy=%22.3em%22>DT</text></svg>'}
-                                  alt="DT"
-                                  className="h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 object-cover bg-slate-700 cursor-pointer"
-                                  onClick={() => document.getElementById(`dt-photo-input-${team.id}`)?.click()}
-                                />
+                                <div className="relative inline-block">
+                                  <img
+                                    src={teamEditById[team.id]?.directorPhotoUrl || team.technicalStaff?.director?.photoUrl || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2228%22 height=%2228%22><rect width=%2228%22 height=%2228%22 rx=%2214%22 fill=%22%233b4252%22/><text x=%2250%25%22 y=%2255%25%22 text-anchor=%22middle%22 fill=%22%23cbd5e1%22 font-size=%2212%22 font-family=%22Arial%22 dy=%22.3em%22>DT</text></svg>'}
+                                    alt="DT"
+                                    className="h-6 w-6 min-h-[24px] min-w-[24px] cursor-pointer rounded-full border border-white/20 bg-slate-700 object-cover"
+                                  />
+                                  {teamEditById[team.id]?.directorPhotoUrl && teamEditById[team.id].directorPhotoUrl !== (team.technicalStaff?.director?.photoUrl ?? '') && (
+                                    <span className="absolute -top-1 -right-1 rounded-full bg-amber-400 px-1 text-[8px] font-bold text-black leading-tight">Nueva</span>
+                                  )}
+                                </div>
                                 <input
                                   id={`dt-photo-input-${team.id}`}
                                   type="file"
@@ -2656,18 +2950,22 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                                   }}
                                 />
                               </label>
-                              <input value={teamEditById[team.id]?.directorName ?? team.technicalStaff?.director?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'directorName', event.target.value)} placeholder="DT" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white w-[80px] min-w-0 flex-1" />
+                              <input value={teamEditById[team.id]?.directorName ?? team.technicalStaff?.director?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'directorName', event.target.value)} placeholder="DT" className="w-[78px] min-w-0 flex-1 rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
                             </div>
                           </td>
-                          <td className="p-2 flex items-center gap-2 align-middle h-[48px]">
-                            <div className="flex items-center gap-2 w-full min-w-[120px]">
+                          <td className="px-2 py-1.5 align-middle">
+                            <div className="flex w-full min-w-[108px] items-center gap-1.5">
                               <label className="cursor-pointer flex-shrink-0">
-                                <img
-                                  src={teamEditById[team.id]?.assistantPhotoUrl || team.technicalStaff?.assistant?.photoUrl || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2228%22 height=%2228%22><rect width=%2228%22 height=%2228%22 rx=%2214%22 fill=%22%233b4252%22/><text x=%2250%25%22 y=%2255%25%22 text-anchor=%22middle%22 fill=%22%23cbd5e1%22 font-size=%2212%22 font-family=%22Arial%22 dy=%22.3em%22>AT</text></svg>'}
-                                  alt="AT"
-                                  className="h-7 w-7 min-w-[28px] min-h-[28px] rounded-full border border-white/20 object-cover bg-slate-700 cursor-pointer"
-                                  onClick={() => document.getElementById(`at-photo-input-${team.id}`)?.click()}
-                                />
+                                <div className="relative inline-block">
+                                  <img
+                                    src={teamEditById[team.id]?.assistantPhotoUrl || team.technicalStaff?.assistant?.photoUrl || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2228%22 height=%2228%22><rect width=%2228%22 height=%2228%22 rx=%2214%22 fill=%22%233b4252%22/><text x=%2250%25%22 y=%2255%25%22 text-anchor=%22middle%22 fill=%22%23cbd5e1%22 font-size=%2212%22 font-family=%22Arial%22 dy=%22.3em%22>AT</text></svg>'}
+                                    alt="AT"
+                                    className="h-6 w-6 min-h-[24px] min-w-[24px] cursor-pointer rounded-full border border-white/20 bg-slate-700 object-cover"
+                                  />
+                                  {teamEditById[team.id]?.assistantPhotoUrl && teamEditById[team.id].assistantPhotoUrl !== (team.technicalStaff?.assistant?.photoUrl ?? '') && (
+                                    <span className="absolute -top-1 -right-1 rounded-full bg-amber-400 px-1 text-[8px] font-bold text-black leading-tight">Nueva</span>
+                                  )}
+                                </div>
                                 <input
                                   id={`at-photo-input-${team.id}`}
                                   type="file"
@@ -2694,29 +2992,36 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                                   }}
                                 />
                               </label>
-                              <input value={teamEditById[team.id]?.assistantName ?? team.technicalStaff?.assistant?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'assistantName', event.target.value)} placeholder="AT" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white w-[80px] min-w-0 flex-1" />
+                              <input value={teamEditById[team.id]?.assistantName ?? team.technicalStaff?.assistant?.name ?? ''} onChange={(event) => updateTeamEdit(team, 'assistantName', event.target.value)} placeholder="AT" className="w-[78px] min-w-0 flex-1 rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
                             </div>
                           </td>
-                          <td className="p-2 text-center align-middle">
-                            <input type="color" value={teamEditById[team.id]?.primaryColor ?? team.primaryColor ?? '#3b82f6'} onChange={(event) => updateTeamEdit(team, 'primaryColor', event.target.value)} className="h-6 w-12 rounded border border-white/20 cursor-pointer" />
+                          <td className="px-2 py-1.5 text-center align-middle">
+                            <input type="color" value={teamEditById[team.id]?.primaryColor ?? team.primaryColor ?? '#3b82f6'} onChange={(event) => updateTeamEdit(team, 'primaryColor', event.target.value)} className="h-5 w-10 cursor-pointer rounded border border-white/20" />
                           </td>
-                          <td className="p-2 text-center align-middle">
-                            <input type="color" value={teamEditById[team.id]?.secondaryColor ?? team.secondaryColor ?? '#ffffff'} onChange={(event) => updateTeamEdit(team, 'secondaryColor', event.target.value)} className="h-6 w-12 rounded border border-white/20 cursor-pointer" />
+                          <td className="px-2 py-1.5 text-center align-middle">
+                            <input type="color" value={teamEditById[team.id]?.secondaryColor ?? team.secondaryColor ?? '#ffffff'} onChange={(event) => updateTeamEdit(team, 'secondaryColor', event.target.value)} className="h-5 w-10 cursor-pointer rounded border border-white/20" />
                           </td>
-                          <td className="p-2 text-center align-middle">
+                          <td className="px-2 py-1.5 text-center align-middle">
                             {team.active === false ? (
-                              <span className="rounded-full border border-amber-300/50 bg-amber-500/20 px-2 py-0.5 text-[11px] font-semibold text-amber-100">Desactivado</span>
+                              <span className="rounded-full border border-amber-300/50 bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-100">Desactivado</span>
                             ) : (
-                              <span className="rounded-full border border-emerald-300/50 bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-100">Activo</span>
+                              <span className="rounded-full border border-emerald-300/50 bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">Activo</span>
                             )}
                           </td>
-                          <td className="p-2 text-center align-middle">
-                            <div className="flex items-center justify-center gap-2 h-full">
-                              <button type="button" title={team.active === false ? 'Reactivar' : 'Desactivar'} disabled={isReadOnlySeason} onClick={() => void toggleTeamActive(team, team.active === false)} className="rounded p-1 hover:bg-amber-600/30 disabled:opacity-60 flex items-center justify-center">
-                                {team.active === false ? <span className="text-emerald-400">&#8635;</span> : <span className="text-amber-400">&#10006;</span>}
-                              </button>
-                              <button type="button" title="Actualizar" disabled={isReadOnlySeason} onClick={() => void saveTeamEdit(team)} className="rounded p-1 hover:bg-primary-600/30 disabled:opacity-60 flex items-center justify-center"><EditIcon className="w-5 h-5 text-primary-300" /></button>
-                              <button type="button" title="Eliminar" disabled={isReadOnlySeason} onClick={() => requestDeleteTeam(team)} className="rounded p-1 hover:bg-rose-600/30 disabled:opacity-60 flex items-center justify-center"><DeleteIcon className="w-5 h-5 text-rose-300" /></button>
+                          <td className="px-2 py-1.5 text-center align-middle">
+                            <div className="flex flex-col items-center gap-0.5">
+                              <div className="flex h-full items-center justify-center gap-1.5">
+                                <button type="button" title={team.active === false ? 'Reactivar' : 'Desactivar'} disabled={isReadOnlySeason} onClick={() => void toggleTeamActive(team, team.active === false)} className="flex items-center justify-center rounded p-0.5 hover:bg-amber-600/30 disabled:opacity-60">
+                                  {team.active === false ? <span className="text-emerald-400">&#8635;</span> : <span className="text-amber-400">&#10006;</span>}
+                                </button>
+                                <button type="button" title="Actualizar" disabled={isReadOnlySeason} onClick={() => void saveTeamEdit(team)} className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-0.5 text-[10px] font-semibold text-primary-100 hover:bg-primary-500/30 disabled:opacity-60">Guardar</button>
+                                <button type="button" title="Eliminar" disabled={isReadOnlySeason} onClick={() => requestDeleteTeam(team)} className="flex items-center justify-center rounded p-0.5 hover:bg-rose-600/30 disabled:opacity-60"><DeleteIcon className="h-4 w-4 text-rose-300" /></button>
+                              </div>
+                              {teamSaveMsg[team.id] && (
+                                <span className={`text-[10px] font-semibold ${teamSaveMsg[team.id].ok ? 'text-emerald-300' : 'text-rose-300'}`}>
+                                  {teamSaveMsg[team.id].text}
+                                </span>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -2832,27 +3137,57 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                       <option value="pending">Pendiente de registro</option>
                       <option value="registered">Registro OK</option>
                     </select>
-                    <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200">Foto
-                      <input type="file" accept="image/*" className="mt-1 block w-full" onChange={async (event) => {
-                        const file = event.target.files?.[0]
-                        if (!file) return
-                        const photoUrl = await toDataUrl(file)
-                        setPlayerDraftByTeam((current) => ({
-                          ...current,
-                          [selectedTeam.id]: {
-                            ...(current[selectedTeam.id] ?? defaultPlayerDraft),
-                            photoUrl,
-                          },
-                        }))
-                      }} />
+                    <label className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200 hover:border-white/40">
+                      <span className="text-slate-400">📷 Foto</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0]
+                          if (!file) return
+                          const teamId = selectedTeam.id
+                          void toDataUrl(file).then((photoUrl) => {
+                            if (!photoUrl) {
+                              showMessage('No se pudo leer la imagen seleccionada')
+                              return
+                            }
+                            setPlayerDraftByTeam((current) => ({
+                              ...current,
+                              [teamId]: {
+                                ...(current[teamId] ?? defaultPlayerDraft),
+                                photoUrl,
+                              },
+                            }))
+                          }).catch(() => {
+                            showMessage('Error al cargar la imagen seleccionada')
+                          })
+                        }}
+                      />
                     </label>
                   </div>
                   {(playerDraftByTeam[selectedTeam.id] ?? defaultPlayerDraft).photoUrl && (
-                    <img
-                      src={(playerDraftByTeam[selectedTeam.id] ?? defaultPlayerDraft).photoUrl}
-                      alt="Nueva foto"
-                      className="mt-2 h-10 w-10 rounded-full border border-white/20 object-cover"
-                    />
+                    <div className="mt-2 flex items-center gap-3 rounded border border-emerald-300/30 bg-emerald-500/10 px-3 py-2">
+                      <img
+                        src={(playerDraftByTeam[selectedTeam.id] ?? defaultPlayerDraft).photoUrl}
+                        alt="Preview foto jugador"
+                        className="h-16 w-16 rounded-full object-cover border-2 border-emerald-400/60 shadow"
+                      />
+                      <div>
+                        <p className="text-xs font-semibold text-emerald-200">Foto lista para guardar</p>
+                        <p className="mt-0.5 text-[11px] text-slate-400">Se guardará al hacer clic en &ldquo;Agregar jugador&rdquo;.</p>
+                        <button
+                          type="button"
+                          onClick={() => setPlayerDraftByTeam((current) => ({
+                            ...current,
+                            [selectedTeam.id]: { ...(current[selectedTeam.id] ?? defaultPlayerDraft), photoUrl: '' },
+                          }))}
+                          className="mt-1 text-[10px] text-rose-300 hover:underline"
+                        >
+                          Quitar foto
+                        </button>
+                      </div>
+                    </div>
                   )}
                   <div className="mt-2 grid grid-cols-1 gap-2 rounded border border-white/10 bg-slate-900/50 p-2 md:grid-cols-[auto_1fr]">
                     <label className="flex items-center gap-2 text-xs text-amber-100">
@@ -2946,18 +3281,21 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                             <tr key={player.id} className="bg-slate-900/60">
                               <td className="p-2 text-center align-middle">
                                 <label className="cursor-pointer">
-                                  {draft.photoUrl ? (
-                                    <img
-                                      src={draft.photoUrl}
-                                      alt={draft.name}
-                                      className="h-8 w-8 rounded-full border border-white/20 object-cover mx-auto"
-                                      onClick={() => document.getElementById(`player-photo-input-${player.id}`)?.click()}
-                                    />
-                                  ) : (
-                                    <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-[10px] text-slate-400 mx-auto bg-slate-800 cursor-pointer" onClick={() => document.getElementById(`player-photo-input-${player.id}`)?.click()}>S/F</div>
-                                  )}
+                                  <div className="relative inline-block mx-auto">
+                                    {draft.photoUrl ? (
+                                      <img
+                                        src={draft.photoUrl}
+                                        alt={draft.name}
+                                        className="h-8 w-8 rounded-full border border-white/20 object-cover"
+                                      />
+                                    ) : (
+                                      <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-[10px] text-slate-400 bg-slate-800 cursor-pointer">S/F</div>
+                                    )}
+                                    {playerEditById[key]?.photoUrl && playerEditById[key].photoUrl !== (player.photoUrl ?? '') && (
+                                      <span className="absolute -top-1 -right-1 rounded-full bg-amber-400 px-1 text-[8px] font-bold text-black leading-tight">Nueva</span>
+                                    )}
+                                  </div>
                                   <input
-                                    id={`player-photo-input-${player.id}`}
                                     type="file"
                                     accept="image/*"
                                     className="hidden"
@@ -3010,10 +3348,17 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                                   <option value="registered">Registro OK</option>
                                 </select>
                               </td>
-                              <td className="p-2 flex gap-2 justify-center align-middle">
-                                <div className="flex items-center justify-center gap-2 h-full">
-                                  <button type="button" disabled={isReadOnlySeason} onClick={() => void savePlayerEdit(selectedTeam.id, player.id, draft)} className="rounded p-1 hover:bg-primary-600/30 disabled:opacity-60 flex items-center justify-center" title="Guardar"><EditIcon className="w-5 h-5 text-primary-300" /></button>
-                                  <button type="button" disabled={isReadOnlySeason} onClick={() => requestDeletePlayer(selectedTeam.id, player.id, player.name)} className="rounded p-1 hover:bg-rose-600/30 disabled:opacity-60 flex items-center justify-center" title="Eliminar"><DeleteIcon className="w-5 h-5 text-rose-300" /></button>
+                              <td className="p-2 align-middle">
+                                <div className="flex flex-col items-center gap-1">
+                                  <div className="flex items-center gap-1">
+                                    <button type="button" disabled={isReadOnlySeason} onClick={() => void savePlayerEdit(selectedTeam.id, player.id, draft)} className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-0.5 text-[10px] font-semibold text-primary-100 hover:bg-primary-500/30 disabled:opacity-60">Guardar</button>
+                                    <button type="button" disabled={isReadOnlySeason} onClick={() => requestDeletePlayer(selectedTeam.id, player.id, player.name)} className="rounded p-1 hover:bg-rose-600/30 disabled:opacity-60 flex items-center justify-center" title="Eliminar"><DeleteIcon className="w-4 h-4 text-rose-300" /></button>
+                                  </div>
+                                  {playerSaveMsg[key] && (
+                                    <span className={`text-[9px] font-semibold ${playerSaveMsg[key].ok ? 'text-emerald-300' : 'text-rose-300'}`}>
+                                      {playerSaveMsg[key].text}
+                                    </span>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -3346,6 +3691,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   type="button"
                   onClick={() => void refreshFixture(true)}
                   disabled={isRefreshingFixture}
+                  title="Recarga desde el servidor: partidos programados, agenda de fechas, resultados jugados y premios MVP. Úsalo si ves datos desactualizados o si otra sesión hizo cambios."
                   className="rounded border border-primary-300/40 bg-primary-500/20 px-3 py-2 text-xs font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isRefreshingFixture ? 'Actualizando...' : 'Actualizar fixture'}
@@ -3354,8 +3700,13 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
               <p className="mt-1 text-[11px] text-slate-500">Recarga fixture, agenda y mejores jugadoras desde el backend.</p>
 
               <p className="mt-2 text-xs text-slate-400">
-                Liga: {selectedLeague.name} · Temporada {selectedLeague.season} · Total de fechas: {fixtureRounds.length || 0}.
+                Liga: {selectedLeague.name} · Temporada {selectedLeague.season} · Total de fechas publicadas: {fixture?.rounds.length ?? 0}.
               </p>
+              {(fixture?.rounds.length ?? 0) === 0 && (
+                <p className="mt-1 text-[11px] text-amber-200">
+                  No hay fechas publicadas aún: puedes cargar partidos manualmente iniciando en Fecha 1 y luego guardar.
+                </p>
+              )}
 
               {isReadOnlySeason && (
                 <p className="mt-2 rounded border border-amber-300/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-100">
@@ -3480,6 +3831,11 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     </button>
                   </div>
                   <p className="mt-1 text-[11px] text-slate-400">Agrega partidos, modifica local/visitante/hora y al final guarda la fecha completa. Los partidos ya jugados se conservan y no se eliminan automáticamente.</p>
+                  {fixtureActionMsg && (
+                    <p className={`mt-2 rounded border px-2 py-1 text-xs ${fixtureActionMsg.ok ? 'border-emerald-300/40 bg-emerald-500/10 text-emerald-100' : 'border-rose-300/40 bg-rose-500/10 text-rose-100'}`}>
+                      {fixtureActionMsg.text}
+                    </p>
+                  )}
 
                   <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto]">
                       <select
@@ -3530,11 +3886,11 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
                       <button
                         type="button"
-                        disabled={isReadOnlySeason}
+                        disabled={isReadOnlySeason || !activeFixtureRound}
                         onClick={addDraftMatchToRound}
                         className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-1 text-xs font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        Agregar partido
+                        {!activeFixtureRound ? 'Selecciona fecha primero' : 'Agregar partido'}
                       </button>
                   </div>
 

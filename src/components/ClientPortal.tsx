@@ -733,6 +733,38 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       ? selectedCategoryId
       : (availableCategories[0]?.id ?? '')
 
+  const normalizeFixturePayload = useCallback((rawPayload: unknown): PublicFixturePayload | null => {
+    if (!rawPayload || typeof rawPayload !== 'object') return null
+
+    const payload = rawPayload as Partial<PublicFixturePayload>
+    const rounds = payload.fixture?.rounds
+
+    if (!Array.isArray(rounds)) return null
+
+    return {
+      league: payload.league ?? {
+        id: selectedLeague?.id ?? '',
+        name: selectedLeague?.name ?? 'Liga',
+        country: selectedLeague?.country ?? '',
+        season: selectedLeague?.season ?? new Date().getFullYear(),
+        slogan: selectedLeague?.slogan,
+        themeColor: selectedLeague?.themeColor,
+        backgroundImageUrl: selectedLeague?.backgroundImageUrl,
+        logoUrl: selectedLeague?.logoUrl,
+      },
+      category: payload.category ?? {
+        id: activeCategoryId,
+        name: availableCategories.find((item) => item.id === activeCategoryId)?.name ?? 'Categoría',
+      },
+      teams: Array.isArray(payload.teams) ? payload.teams : [],
+      fixture: { rounds },
+      schedule: Array.isArray(payload.schedule) ? payload.schedule : [],
+      playedMatchIds: Array.isArray(payload.playedMatchIds) ? payload.playedMatchIds : [],
+      playedMatches: Array.isArray(payload.playedMatches) ? payload.playedMatches : [],
+      roundAwards: Array.isArray(payload.roundAwards) ? payload.roundAwards : [],
+    }
+  }, [activeCategoryId, availableCategories, selectedLeague])
+
   useEffect(() => {
     setVisitorAliasDraft(visitorAlias)
   }, [visitorAlias])
@@ -856,8 +888,17 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       }
 
       if (disposed) return
-      setFixturePayload(response.data)
-      const firstRound = response.data.fixture.rounds[0]?.round ?? 1
+
+      const normalizedPayload = normalizeFixturePayload(response.data)
+      if (!normalizedPayload) {
+        setFixturePayload(null)
+        setErrorMessage('Formato de fixture inválido en backend')
+        setLoadingFixture(false)
+        return
+      }
+
+      setFixturePayload(normalizedPayload)
+      const firstRound = normalizedPayload.fixture.rounds[0]?.round ?? 1
       setSelectedRound(firstRound)
       setSelectedMatchId('')
       setLoadingFixture(false)
@@ -867,7 +908,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     return () => {
       disposed = true
     }
-  }, [activeCategoryId, clientId, selectedLeague])
+  }, [activeCategoryId, clientId, normalizeFixturePayload, selectedLeague])
 
   const refreshFixture = useCallback(async () => {
     if (!selectedLeague || !activeCategoryId) return
@@ -875,8 +916,15 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     const response = await apiService.getPublicClientLeagueFixture(clientId, selectedLeague.id, activeCategoryId)
     if (!response.ok) return
 
-    setFixturePayload(response.data)
-  }, [activeCategoryId, clientId, selectedLeague])
+    const normalizedPayload = normalizeFixturePayload(response.data)
+    if (!normalizedPayload) {
+      setFixturePayload(null)
+      setErrorMessage('Formato de fixture inválido en backend')
+      return
+    }
+
+    setFixturePayload(normalizedPayload)
+  }, [activeCategoryId, clientId, normalizeFixturePayload, selectedLeague])
 
   useEffect(() => {
     const fetchLive = async () => {
@@ -921,6 +969,9 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     const generatedMap = new Map<string, ScheduledMatch>()
     const scheduledPairKeys = new Set<string>()
 
+    // Also index by round+teams to handle index drift when teams change
+    const generatedByPair = new Map<string, ScheduledMatch>()
+
     fixturePayload.fixture.rounds.forEach((round) => {
       const roundItems: ScheduledMatch[] = []
       round.matches.forEach((match, index) => {
@@ -936,6 +987,9 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
 
         roundItems.push(generatedItem)
         generatedMap.set(generatedId, generatedItem)
+        // Index both home-away and away-home so reversed assignments still match
+        generatedByPair.set(buildRoundTeamsKey(round.round, match.homeTeamId, match.awayTeamId), generatedItem)
+        generatedByPair.set(buildRoundTeamsKey(round.round, match.awayTeamId, match.homeTeamId), generatedItem)
       })
       generatedByRound.set(round.round, roundItems)
     })
@@ -959,6 +1013,35 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
         })
         scheduleByRound.set(entry.round, roundItems)
         return
+      }
+
+      // Fallback: matchId may use a different index but same home/away teams
+      // Try to parse the teams from index-based id: "<round>-<idx>-<homeId>-<awayId>"
+      const indexParts = entry.matchId.split('-')
+      if (indexParts.length >= 4) {
+        // UUIDs contain hyphens, so reconstruct: round, idx, then rest split at midpoint
+        const entryRound = Number(indexParts[0])
+        if (entryRound === entry.round && indexParts.length >= 13) {
+          // Each UUID is 5 segments joined by '-' → positions 2..6 = homeId, 7..11 = awayId
+          const homeTeamId = indexParts.slice(2, 7).join('-')
+          const awayTeamId = indexParts.slice(7, 12).join('-')
+          const pairKeyFwd = buildRoundTeamsKey(entry.round, homeTeamId, awayTeamId)
+          const fromPair = generatedByPair.get(pairKeyFwd)
+          if (fromPair) {
+            if (scheduledPairKeys.has(pairKeyFwd)) return
+            scheduledPairKeys.add(pairKeyFwd)
+            const roundItems = scheduleByRound.get(entry.round) ?? []
+            roundItems.push({
+              ...fromPair,
+              ...(entry.scheduledAt ? { scheduledAt: normalizeScheduledAt(entry.scheduledAt, entry.status) } : {}),
+              ...(entry.venue ? { venue: entry.venue } : {}),
+              ...(entry.status ? { status: entry.status } : {}),
+              played: fixturePayload.playedMatchIds.includes(entry.matchId),
+            })
+            scheduleByRound.set(entry.round, roundItems)
+            return
+          }
+        }
       }
 
       const manual = parseManualMatchId(entry.matchId, entry.round)

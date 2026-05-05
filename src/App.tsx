@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import { AdminTeamsPanel } from './components/AdminTeamsPanel.tsx'
 import { ClientPortal } from './components/ClientPortal.tsx'
+import { ListSectionControls, PaginationControls } from './components/ListSectionControls'
 import { StoreFooter } from './components/StoreFooter'
 import { apiBaseUrl, apiService } from './services/api'
 import type {
@@ -22,6 +23,25 @@ import type { LiveEvent, LiveMatch, LivePlayer, LiveStaffRole, LiveTeam } from '
 
 const leagueTitle = 'FL League'
 const authUserStorageKey = '@fl_liga_auth_user'
+const TOKEN_PAGE_SIZE = 6
+const CLIENT_ADMIN_PAGE_SIZE = 8
+const PUBLIC_ROWS_PAGE_SIZE = 8
+
+type TokenStatusFilter = 'all' | 'active' | 'expired'
+type ClientAdminStatusFilter = 'all' | 'active' | 'inactive'
+
+const toDateTimeLocalValue = (value: string | number | Date) => {
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return ''
+
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16)
+}
+
+const isTokenCurrentlyActive = (token: Pick<ClientAccessTokenSummary, 'active' | 'expiresAt'>) => {
+  const expiresAtMs = new Date(token.expiresAt).getTime()
+  return token.active && Number.isFinite(expiresAtMs) && expiresAtMs > Date.now()
+}
 
 interface ScheduledMatchItem {
   id: string
@@ -366,6 +386,7 @@ function App() {
       return null
     }
   })
+  const [sessionExpired, setSessionExpired] = useState(false)
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [loginMode, setLoginMode] = useState<'super_admin' | 'client_admin'>('client_admin')
@@ -388,6 +409,14 @@ function App() {
   const [clientAccessTokens, setClientAccessTokens] = useState<ClientAccessTokenSummary[]>([])
   const [tokenClientUserIdDraft, setTokenClientUserIdDraft] = useState('')
   const [tokenExpiresAtDraft, setTokenExpiresAtDraft] = useState('')
+  const [renewingTokenId, setRenewingTokenId] = useState('')
+  const [renewTokenExpiresAtDraft, setRenewTokenExpiresAtDraft] = useState('')
+  const [tokenStatusFilter, setTokenStatusFilter] = useState<TokenStatusFilter>('all')
+  const [tokenPage, setTokenPage] = useState(1)
+  const [clientAdminStatusFilter, setClientAdminStatusFilter] = useState<ClientAdminStatusFilter>('all')
+  const [clientAdminPage, setClientAdminPage] = useState(1)
+  const [publicRowsQuery, setPublicRowsQuery] = useState('')
+  const [publicRowsPage, setPublicRowsPage] = useState(1)
   const [generatedTokenMessage, setGeneratedTokenMessage] = useState('')
   const [newClientNameDraft, setNewClientNameDraft] = useState('')
   const [newClientOrganizationDraft, setNewClientOrganizationDraft] = useState('')
@@ -560,6 +589,17 @@ function App() {
   }, [])
 
   useEffect(() => {
+    apiService.onSessionExpired(() => {
+      apiService.setAuthToken('')
+      localStorage.removeItem('@fl_liga_auth_user')
+      setAuthUser(null)
+      setLeagues([])
+      setSelectedLeagueId('')
+      setSessionExpired(true)
+    })
+  }, [])
+
+  useEffect(() => {
     if (!apiService.getAuthToken()) return
 
     queueMicrotask(async () => {
@@ -578,6 +618,43 @@ function App() {
     () => leagues.find((league) => league.id === selectedLeagueId) ?? null,
     [leagues, selectedLeagueId],
   )
+
+  const orderedClientAccessTokens = useMemo(() => {
+    return [...clientAccessTokens].sort((left, right) => {
+      const leftExpiresAt = new Date(left.expiresAt).getTime()
+      const rightExpiresAt = new Date(right.expiresAt).getTime()
+      const leftIsActive = isTokenCurrentlyActive(left)
+      const rightIsActive = isTokenCurrentlyActive(right)
+
+      if (leftIsActive !== rightIsActive) {
+        return leftIsActive ? 1 : -1
+      }
+
+      return leftExpiresAt - rightExpiresAt
+    })
+  }, [clientAccessTokens])
+
+  const filteredClientAccessTokens = useMemo(() => {
+    if (tokenStatusFilter === 'all') return orderedClientAccessTokens
+    if (tokenStatusFilter === 'active') {
+      return orderedClientAccessTokens.filter((token) => isTokenCurrentlyActive(token))
+    }
+
+    return orderedClientAccessTokens.filter((token) => !isTokenCurrentlyActive(token))
+  }, [orderedClientAccessTokens, tokenStatusFilter])
+
+  const tokenTotalPages = Math.max(1, Math.ceil(filteredClientAccessTokens.length / TOKEN_PAGE_SIZE))
+  const tokenPageStartIndex = filteredClientAccessTokens.length === 0 ? 0 : (tokenPage - 1) * TOKEN_PAGE_SIZE + 1
+  const tokenPageEndIndex = Math.min(tokenPage * TOKEN_PAGE_SIZE, filteredClientAccessTokens.length)
+
+  const paginatedClientAccessTokens = useMemo(() => {
+    const start = (tokenPage - 1) * TOKEN_PAGE_SIZE
+    return filteredClientAccessTokens.slice(start, start + TOKEN_PAGE_SIZE)
+  }, [filteredClientAccessTokens, tokenPage])
+
+  useEffect(() => {
+    setTokenPage((current) => Math.min(current, tokenTotalPages))
+  }, [tokenTotalPages])
 
   const resetMatchSelection = () => {
     setSelectedPendingMatchId('')
@@ -1483,6 +1560,10 @@ function App() {
   }
 
   const handleRevokeClientAccessToken = async (tokenId: string) => {
+    if (typeof window !== 'undefined' && !window.confirm('Esto caducará el token inmediatamente. ¿Deseas continuar?')) {
+      return
+    }
+
     const response = await apiService.revokeClientAccessToken(tokenId)
     if (!response.ok) {
       setGeneratedTokenMessage(response.message)
@@ -1492,10 +1573,17 @@ function App() {
     setClientAccessTokens((current) =>
       current.map((token) => (token.id === tokenId ? { ...token, active: false, revokedAt: response.data.revokedAt } : token)),
     )
+    setGeneratedTokenMessage('Token caducado inmediatamente')
   }
 
-  const handleRenewClientAccessToken = async (tokenId: string) => {
-    const expiresIso = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+  const handleRenewClientAccessToken = async (tokenId: string, expiresAtDraft?: string) => {
+    const selectedExpiresAt = expiresAtDraft?.trim() || toDateTimeLocalValue(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    if (!selectedExpiresAt) {
+      setGeneratedTokenMessage('Selecciona una fecha válida para renovar el token')
+      return
+    }
+
+    const expiresIso = new Date(selectedExpiresAt).toISOString()
     const response = await apiService.renewClientAccessToken(tokenId, expiresIso)
     if (!response.ok) {
       setGeneratedTokenMessage(response.message)
@@ -1509,7 +1597,9 @@ function App() {
           : token,
       ),
     )
-    setGeneratedTokenMessage('Token renovado por 30 días')
+    setRenewingTokenId('')
+    setRenewTokenExpiresAtDraft('')
+    setGeneratedTokenMessage(`Token renovado hasta ${new Date(response.data.expiresAt).toLocaleString()}`)
   }
 
   const handleCopyPublicLink = async (url: string) => {
@@ -3020,6 +3110,54 @@ function App() {
     })
   }, [publicBaseUrl, usersOverview])
 
+  const clientAdminUsers = useMemo(() => {
+    return usersOverview.filter((user) => user.role === 'client_admin')
+  }, [usersOverview])
+
+  const filteredClientAdminUsers = useMemo(() => {
+    if (clientAdminStatusFilter === 'all') return clientAdminUsers
+    if (clientAdminStatusFilter === 'active') {
+      return clientAdminUsers.filter((user) => user.active)
+    }
+
+    return clientAdminUsers.filter((user) => !user.active)
+  }, [clientAdminStatusFilter, clientAdminUsers])
+
+  const clientAdminTotalPages = Math.max(1, Math.ceil(filteredClientAdminUsers.length / CLIENT_ADMIN_PAGE_SIZE))
+  const clientAdminPageStartIndex = filteredClientAdminUsers.length === 0 ? 0 : (clientAdminPage - 1) * CLIENT_ADMIN_PAGE_SIZE + 1
+  const clientAdminPageEndIndex = Math.min(clientAdminPage * CLIENT_ADMIN_PAGE_SIZE, filteredClientAdminUsers.length)
+
+  const paginatedClientAdminUsers = useMemo(() => {
+    const start = (clientAdminPage - 1) * CLIENT_ADMIN_PAGE_SIZE
+    return filteredClientAdminUsers.slice(start, start + CLIENT_ADMIN_PAGE_SIZE)
+  }, [clientAdminPage, filteredClientAdminUsers])
+
+  const filteredSuperAdminPublicRows = useMemo(() => {
+    const query = publicRowsQuery.trim().toLowerCase()
+    if (!query) return superAdminPublicRows
+
+    return superAdminPublicRows.filter((row) =>
+      `${row.clientName} ${row.companyOrLeague} ${row.email} ${row.leagueName}`.toLowerCase().includes(query),
+    )
+  }, [publicRowsQuery, superAdminPublicRows])
+
+  const publicRowsTotalPages = Math.max(1, Math.ceil(filteredSuperAdminPublicRows.length / PUBLIC_ROWS_PAGE_SIZE))
+  const publicRowsPageStartIndex = filteredSuperAdminPublicRows.length === 0 ? 0 : (publicRowsPage - 1) * PUBLIC_ROWS_PAGE_SIZE + 1
+  const publicRowsPageEndIndex = Math.min(publicRowsPage * PUBLIC_ROWS_PAGE_SIZE, filteredSuperAdminPublicRows.length)
+
+  const paginatedSuperAdminPublicRows = useMemo(() => {
+    const start = (publicRowsPage - 1) * PUBLIC_ROWS_PAGE_SIZE
+    return filteredSuperAdminPublicRows.slice(start, start + PUBLIC_ROWS_PAGE_SIZE)
+  }, [filteredSuperAdminPublicRows, publicRowsPage])
+
+  useEffect(() => {
+    setClientAdminPage((current) => Math.min(current, clientAdminTotalPages))
+  }, [clientAdminTotalPages])
+
+  useEffect(() => {
+    setPublicRowsPage((current) => Math.min(current, publicRowsTotalPages))
+  }, [publicRowsTotalPages])
+
   const getRoundLabel = useCallback(
     (round: number) =>
       buildRoundLabel(round, {
@@ -3597,6 +3735,31 @@ function App() {
     return <ClientPortal clientId={publicClientId} />
   }
 
+  // Modal de sesión caducada — aparece sobre cualquier pantalla
+  if (sessionExpired) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+        <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-slate-900 p-8 text-center shadow-2xl">
+          <div className="mb-4 flex justify-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-500/20">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              </svg>
+            </div>
+          </div>
+          <h2 className="mb-2 text-xl font-bold text-white">Sesión caducada</h2>
+          <p className="mb-6 text-sm text-slate-400">Tu sesión ha expirado o fue cerrada desde otro dispositivo. Por favor, inicia sesión nuevamente.</p>
+          <button
+            className="w-full rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white transition hover:bg-indigo-500"
+            onClick={() => setSessionExpired(false)}
+          >
+            Ir al inicio de sesión
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (!authUser) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 text-slate-100">
@@ -4098,48 +4261,171 @@ function App() {
                   </div>
                   {generatedTokenMessage && <p className="mt-2 text-xs text-cyan-100">{generatedTokenMessage}</p>}
 
-                  <div className="mt-3 max-h-48 space-y-2 overflow-auto">
-                    {clientAccessTokens.length === 0 && <p className="text-xs text-slate-300">Sin tokens generados.</p>}
-                    {clientAccessTokens.map((token) => {
+                  <div className="mt-3 space-y-2">
+                    <ListSectionControls
+                      left={(
+                        <>
+                          <span className="text-[11px] text-slate-300">Filtro:</span>
+                          <select
+                            value={tokenStatusFilter}
+                            onChange={(event) => {
+                              setTokenStatusFilter(event.target.value as TokenStatusFilter)
+                              setTokenPage(1)
+                            }}
+                            className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-[11px] text-white"
+                          >
+                            <option value="all">Todos</option>
+                            <option value="active">Activos</option>
+                            <option value="expired">Caducados</option>
+                          </select>
+                        </>
+                      )}
+                      summary={
+                        filteredClientAccessTokens.length === 0
+                          ? '0 resultados'
+                          : `${tokenPageStartIndex}-${tokenPageEndIndex} de ${filteredClientAccessTokens.length}`
+                      }
+                    />
+
+                    <div className="max-h-64 space-y-2 overflow-auto">
+                      {filteredClientAccessTokens.length === 0 && <p className="text-xs text-slate-300">No hay tokens para este filtro.</p>}
+                      {paginatedClientAccessTokens.map((token) => {
                       const expiresAtMs = new Date(token.expiresAt).getTime()
                       const tokenIsActive = token.active && Number.isFinite(expiresAtMs) && expiresAtMs > Date.now()
+                      const clientOwner = usersOverview.find((user) => user.id === token.clientUserId)
+                      const displayClientName = clientOwner?.name || token.clientName || 'Cliente sin nombre'
+                      const displayOrganizationName = clientOwner?.organizationName || token.organizationName || ''
+                      const displayClientEmail = clientOwner?.email || token.clientEmail || 'Sin correo registrado'
 
                       return (
-                        <div key={token.id} className="rounded border border-white/10 bg-slate-900/60 p-2 text-xs text-slate-200">
-                          <p className="font-semibold text-white">{token.clientName}</p>
-                          <p className="break-all text-[11px]">{token.token}</p>
-                          <p className="text-[11px]">Vence: {new Date(token.expiresAt).toLocaleString()}</p>
-                          <div className="mt-1 flex items-center justify-between gap-2">
-                            <span className={`rounded px-1.5 py-0.5 text-[10px] ${tokenIsActive ? 'bg-emerald-500/20 text-emerald-100' : 'bg-rose-500/20 text-rose-100'}`}>
+                        <div
+                          key={token.id}
+                          className={`rounded-lg border p-3 text-xs ${tokenIsActive ? 'border-emerald-400/20 bg-emerald-900/10' : 'border-rose-400/20 bg-rose-900/10'}`}
+                        >
+                          {/* Cabecera: cliente + badge */}
+                          <div className="mb-2 flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-bold text-white leading-tight">{displayClientName}</p>
+                              {displayOrganizationName && displayOrganizationName !== displayClientName && (
+                                <p className="text-[11px] text-slate-400">{displayOrganizationName}</p>
+                              )}
+                              <p className="text-[11px] text-slate-400">{displayClientEmail}</p>
+                            </div>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${tokenIsActive ? 'bg-emerald-500/25 text-emerald-300' : 'bg-rose-500/25 text-rose-300'}`}>
                               {tokenIsActive ? 'Activo' : 'Caducado'}
                             </span>
-                            <div className="flex items-center gap-1">
+                          </div>
+
+                          {/* Token + vencimiento */}
+                          <div className="mb-2 rounded bg-black/30 px-2 py-1.5">
+                            <p className="break-all font-mono text-[10px] text-slate-300">{token.token}</p>
+                            <p className={`mt-0.5 text-[10px] ${tokenIsActive ? 'text-slate-400' : 'text-rose-300'}`}>
+                              {tokenIsActive ? 'Vence:' : 'Venció:'} {new Date(token.expiresAt).toLocaleString()}
+                            </p>
+                          </div>
+
+                          {/* Acciones */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => void handleRenewClientAccessToken(token.id)}
+                              className="rounded border border-cyan-300/40 bg-cyan-500/20 px-2.5 py-1 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/30 transition"
+                            >
+                              Renovar 30 días
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRenewingTokenId((current) => (current === token.id ? '' : token.id))
+                                setRenewTokenExpiresAtDraft(toDateTimeLocalValue(token.expiresAt))
+                              }}
+                              className="rounded border border-amber-300/40 bg-amber-500/20 px-2.5 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/30 transition"
+                            >
+                              Renovar con fecha
+                            </button>
+                            {tokenIsActive && (
                               <button
                                 type="button"
-                                onClick={() => void handleRenewClientAccessToken(token.id)}
-                                className="rounded border border-emerald-300/40 bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-100"
+                                onClick={() => void handleRevokeClientAccessToken(token.id)}
+                                className="rounded border border-rose-300/40 bg-rose-500/20 px-2.5 py-1 text-[11px] font-semibold text-rose-100 hover:bg-rose-500/30 transition"
                               >
-                                Renovar
+                                Caducar
                               </button>
-                              {tokenIsActive && (
-                                <button
-                                  type="button"
-                                  onClick={() => void handleRevokeClientAccessToken(token.id)}
-                                  className="rounded border border-rose-300/40 bg-rose-500/20 px-2 py-0.5 text-[10px] font-semibold text-rose-100"
-                                >
-                                  Caducar
-                                </button>
-                              )}
-                            </div>
+                            )}
                           </div>
+
+                          {renewingTokenId === token.id && (
+                            <div className="mt-3 flex flex-wrap items-center gap-2 rounded border border-white/10 bg-slate-950/40 p-2">
+                              <input
+                                type="datetime-local"
+                                value={renewTokenExpiresAtDraft}
+                                onChange={(event) => setRenewTokenExpiresAtDraft(event.target.value)}
+                                className="rounded border border-white/20 bg-slate-900 px-2 py-1.5 text-[11px] text-white"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void handleRenewClientAccessToken(token.id, renewTokenExpiresAtDraft)}
+                                className="rounded border border-cyan-300/40 bg-cyan-500/20 px-2.5 py-1 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/30 transition"
+                              >
+                                Aplicar fecha
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRenewingTokenId('')
+                                  setRenewTokenExpiresAtDraft('')
+                                }}
+                                className="rounded border border-white/20 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-slate-200 hover:bg-white/10 transition"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )
                     })}
+
+                    </div>
+
+                    {filteredClientAccessTokens.length > TOKEN_PAGE_SIZE && (
+                      <PaginationControls
+                        className="mt-2"
+                        currentPage={tokenPage}
+                        totalPages={tokenTotalPages}
+                        onPrev={() => setTokenPage((current) => Math.max(1, current - 1))}
+                        onNext={() => setTokenPage((current) => Math.min(tokenTotalPages, current + 1))}
+                      />
+                    )}
                   </div>
                 </div>
 
                 <div className="mt-4 rounded-xl border border-amber-300/30 bg-amber-500/10 p-3">
                   <p className="text-sm font-semibold text-amber-100">Gestión de clientes admin</p>
+                  <ListSectionControls
+                    className="mt-2"
+                    left={(
+                      <>
+                        <span className="text-[11px] text-slate-300">Filtro:</span>
+                        <select
+                          value={clientAdminStatusFilter}
+                          onChange={(event) => {
+                            setClientAdminStatusFilter(event.target.value as ClientAdminStatusFilter)
+                            setClientAdminPage(1)
+                          }}
+                          className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-[11px] text-white"
+                        >
+                          <option value="all">Todos</option>
+                          <option value="active">Activos</option>
+                          <option value="inactive">Inactivos</option>
+                        </select>
+                      </>
+                    )}
+                    summary={
+                      filteredClientAdminUsers.length === 0
+                        ? '0 resultados'
+                        : `${clientAdminPageStartIndex}-${clientAdminPageEndIndex} de ${filteredClientAdminUsers.length}`
+                    }
+                  />
                   <div className="mt-3 overflow-auto rounded border border-white/10">
                     <table className="min-w-full text-xs text-slate-200">
                       <thead className="bg-slate-900/70 text-slate-300">
@@ -4152,15 +4438,13 @@ function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {usersOverview.filter((user) => user.role === 'client_admin').length === 0 && (
+                        {filteredClientAdminUsers.length === 0 && (
                           <tr className="border-t border-white/10 bg-slate-900/40">
-                            <td colSpan={5} className="px-2 py-3 text-slate-400">Sin clientes registrados.</td>
+                            <td colSpan={5} className="px-2 py-3 text-slate-400">Sin clientes para este filtro.</td>
                           </tr>
                         )}
 
-                        {usersOverview
-                          .filter((user) => user.role === 'client_admin')
-                          .map((client) => {
+                        {paginatedClientAdminUsers.map((client) => {
                             const isEditing = editingClientId === client.id
 
                             return (
@@ -4259,9 +4543,42 @@ function App() {
                       </tbody>
                     </table>
                   </div>
+
+                  {filteredClientAdminUsers.length > CLIENT_ADMIN_PAGE_SIZE && (
+                    <PaginationControls
+                      className="mt-2"
+                      currentPage={clientAdminPage}
+                      totalPages={clientAdminTotalPages}
+                      onPrev={() => setClientAdminPage((current) => Math.max(1, current - 1))}
+                      onNext={() => setClientAdminPage((current) => Math.min(clientAdminTotalPages, current + 1))}
+                    />
+                  )}
                 </div>
 
-                <div className="mt-3 overflow-auto rounded-xl border border-white/10">
+                <div className="mt-3 rounded-xl border border-white/10 p-3">
+                  <ListSectionControls
+                    left={(
+                      <>
+                        <span className="text-[11px] text-slate-300">Buscar:</span>
+                        <input
+                          value={publicRowsQuery}
+                          onChange={(event) => {
+                            setPublicRowsQuery(event.target.value)
+                            setPublicRowsPage(1)
+                          }}
+                          placeholder="Cliente, empresa, correo o liga"
+                          className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-[11px] text-white placeholder:text-slate-500"
+                        />
+                      </>
+                    )}
+                    summary={
+                      filteredSuperAdminPublicRows.length === 0
+                        ? '0 resultados'
+                        : `${publicRowsPageStartIndex}-${publicRowsPageEndIndex} de ${filteredSuperAdminPublicRows.length}`
+                    }
+                  />
+
+                  <div className="mt-3 overflow-auto rounded border border-white/10">
                   <table className="min-w-full text-xs text-slate-200">
                     <thead className="bg-slate-900/80 text-slate-300">
                       <tr>
@@ -4274,15 +4591,15 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {superAdminPublicRows.length === 0 && (
+                      {filteredSuperAdminPublicRows.length === 0 && (
                         <tr className="border-t border-white/10 bg-slate-900/40">
                           <td colSpan={6} className="px-3 py-3 text-slate-400">
-                            Sin clientes registrados.
+                            Sin resultados para esta búsqueda.
                           </td>
                         </tr>
                       )}
 
-                      {superAdminPublicRows.map((row) => (
+                      {paginatedSuperAdminPublicRows.map((row) => (
                         <tr key={row.rowId} className="border-t border-white/10 bg-slate-900/40">
                           <td className="px-3 py-2 font-semibold text-white">{row.clientName}</td>
                           <td className="px-3 py-2">{row.companyOrLeague}</td>
@@ -4328,6 +4645,17 @@ function App() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
+
+                  {filteredSuperAdminPublicRows.length > PUBLIC_ROWS_PAGE_SIZE && (
+                    <PaginationControls
+                      className="mt-2"
+                      currentPage={publicRowsPage}
+                      totalPages={publicRowsTotalPages}
+                      onPrev={() => setPublicRowsPage((current) => Math.max(1, current - 1))}
+                      onNext={() => setPublicRowsPage((current) => Math.min(publicRowsTotalPages, current + 1))}
+                    />
+                  )}
                 </div>
               </section>
             )}
