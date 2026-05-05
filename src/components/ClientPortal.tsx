@@ -656,6 +656,12 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   const [recentEventIds, setRecentEventIds] = useState<string[]>([])
   const [goalAlertActive, setGoalAlertActive] = useState(false)
   const [penaltyMissAlertActive, setPenaltyMissAlertActive] = useState(false)
+  const [followAlert, setFollowAlert] = useState<{
+    id: string
+    title: string
+    body: string
+    tone: 'goal' | 'warning' | 'info'
+  } | null>(null)
   const [showMvpPopup, setShowMvpPopup] = useState(false)
   const [publicStatsTab, setPublicStatsTab] = useState<ClientStatsTab>('matches')
   const [publicStandingsSearchTerm, setPublicStandingsSearchTerm] = useState('')
@@ -870,6 +876,20 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     window.localStorage.setItem(getPublicAliasStorageKey(clientId), '')
   }, [clientId])
 
+  const pushInAppFollowAlert = useCallback((title: string, body: string, tone: 'goal' | 'warning' | 'info' = 'info') => {
+    setFollowAlert({
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      title,
+      body,
+      tone,
+    })
+
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      const pattern = tone === 'goal' ? [120, 70, 120, 70, 180] : tone === 'warning' ? [90, 90, 90] : [70]
+      navigator.vibrate(pattern)
+    }
+  }, [])
+
   const requestNotificationsPermission = useCallback(async (): Promise<boolean> => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
       setNotificationsEnabled(false)
@@ -898,6 +918,16 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   }, [])
 
   const showFollowNotification = useCallback(async (title: string, body: string, tag: string) => {
+    const tone: 'goal' | 'warning' | 'info' =
+      title.includes('Gol') || title.includes('Autogol')
+        ? 'goal'
+        : title.includes('Tarjeta') || title.includes('Penal')
+          ? 'warning'
+          : 'info'
+
+    // Siempre muestra alerta interna del portal para no depender del permiso del sistema.
+    pushInAppFollowAlert(title, body, tone)
+
     if (typeof window === 'undefined' || !('Notification' in window)) return
     if (window.Notification.permission !== 'granted') return
 
@@ -926,7 +956,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     } catch {
       // Ignora fallos del navegador/dispositivo al emitir la notificación
     }
-  }, [])
+  }, [pushInAppFollowAlert])
 
   useEffect(() => {
     let disposed = false
@@ -1621,6 +1651,18 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       document.removeEventListener('visibilitychange', syncPermission)
     }
   }, [])
+
+  useEffect(() => {
+    if (!followAlert) return
+
+    const timer = window.setTimeout(() => {
+      setFollowAlert((current) => (current?.id === followAlert.id ? null : current))
+    }, 4200)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [followAlert])
 
 
   const selectedMatchMvp = useMemo(() => {
@@ -3074,7 +3116,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
               </p>
             </div>
 
-            <div>
+            <div className="space-y-2">
               <button
                 type="button"
                 onClick={handleToggleMatchLike}
@@ -3089,7 +3131,28 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                   ? `🔔 Siguiendo partido${notificationsEnabled ? '' : ' (sin permiso notif.)'}`
                   : '🔕 Seguir partido'} · {matchLikeState.likes}
               </button>
+
+              {matchLikeState.likedByCurrentUser && !notificationsEnabled && (
+                <p className="max-w-xl text-[11px] text-amber-200">
+                  En móvil y navegador, las notificaciones del sistema requieren permiso del dispositivo. Sin permiso te mostraremos alertas en pantalla y vibración dentro del portal.
+                </p>
+              )}
             </div>
+
+            {followAlert && (
+              <div
+                className={`rounded-xl border px-3 py-2 text-xs transition-all duration-300 ${
+                  followAlert.tone === 'goal'
+                    ? 'border-emerald-300/70 bg-emerald-500/15 text-emerald-100'
+                    : followAlert.tone === 'warning'
+                      ? 'border-amber-300/70 bg-amber-500/15 text-amber-100'
+                      : 'border-cyan-300/70 bg-cyan-500/15 text-cyan-100'
+                }`}
+              >
+                <p className="font-semibold">{followAlert.title}</p>
+                <p className="mt-0.5 opacity-90">{followAlert.body}</p>
+              </div>
+            )}
 
             <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
               {selectedMatchHistory?.record && (
