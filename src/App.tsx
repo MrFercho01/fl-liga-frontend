@@ -5725,7 +5725,7 @@ function App() {
                           </div>
 
                           <div className="relative h-[320px] sm:h-[400px]">
-                            <div className="absolute inset-x-2 top-4 bottom-1/2 flex flex-col justify-evenly">
+                            <div className="absolute inset-x-2 top-4 bottom-[54%] flex flex-col justify-evenly overflow-hidden">
                               {selectedPlayedAwayVisualLines.map((line, lineIndex) => (
                                 <div key={`history-away-line-${lineIndex}`} className="px-1">
                                   <div className="grid items-start gap-2" style={{ gridTemplateColumns: `repeat(${line.length}, minmax(0, 1fr))` }}>
@@ -5744,7 +5744,7 @@ function App() {
                                           <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-slate-900/70 text-xs font-bold text-white">
                                             {player.number}
                                           </div>
-                                          <p title={player.name} className="mt-1 px-0.5 text-[9px] font-semibold leading-tight text-white sm:text-[10px]">
+                                          <p title={player.name} className="mt-1 px-0.5 text-[9px] font-semibold text-white sm:text-[10px] truncate">
                                             {formatCompactPlayerName(player.name, 14)}
                                           </p>
                                           {badges.length > 0 && (
@@ -5762,7 +5762,7 @@ function App() {
                               ))}
                             </div>
 
-                            <div className="absolute inset-x-2 top-1/2 bottom-4 flex flex-col justify-evenly">
+                            <div className="absolute inset-x-2 top-[54%] bottom-4 flex flex-col justify-evenly overflow-hidden">
                               {selectedPlayedHomeVisualLines.map((line, lineIndex) => (
                                 <div key={`history-home-line-${lineIndex}`} className="px-1">
                                   <div className="grid items-start gap-2" style={{ gridTemplateColumns: `repeat(${line.length}, minmax(0, 1fr))` }}>
@@ -5781,7 +5781,7 @@ function App() {
                                           <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-slate-900/70 text-xs font-bold text-white">
                                             {player.number}
                                           </div>
-                                          <p title={player.name} className="mt-1 px-0.5 text-[9px] font-semibold leading-tight text-white sm:text-[10px]">
+                                          <p title={player.name} className="mt-1 px-0.5 text-[9px] font-semibold text-white sm:text-[10px] truncate">
                                             {formatCompactPlayerName(player.name, 14)}
                                           </p>
                                           {badges.length > 0 && (
