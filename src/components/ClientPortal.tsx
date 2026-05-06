@@ -3374,7 +3374,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                     </div>
                   ) : (
                     <div className="relative h-[440px]">
-                      <div className="absolute inset-x-2 top-4 bottom-1/2 flex flex-col justify-evenly">
+                      <div className="absolute inset-x-2 top-4 bottom-[54%] flex flex-col justify-evenly overflow-hidden">
                         {awayVisualLines.map((line, lineIndex) => (
                           <div key={`away-line-${lineIndex}`} className="px-1">
                             <div
@@ -3420,7 +3420,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                     )
                                   })()}
                                 </div>
-                                <p className={`mt-1 px-0.5 font-semibold text-white drop-shadow ${line.length >= 5 ? 'text-[9px]' : 'text-[10px]'} leading-tight break-words`}>
+                                <p className={`mt-1 px-0.5 font-semibold text-white drop-shadow ${line.length >= 5 ? 'text-[9px]' : 'text-[10px]'} truncate`}>
                                   {player.name}
                                 </p>
                               </div>
@@ -3430,7 +3430,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                         ))}
                       </div>
 
-                      <div className="absolute inset-x-2 top-1/2 bottom-4 flex flex-col justify-evenly">
+                      <div className="absolute inset-x-2 top-[54%] bottom-4 flex flex-col justify-evenly overflow-hidden">
                         {homeVisualLines.map((line, lineIndex) => (
                           <div key={`home-line-${lineIndex}`} className="px-1">
                             <div
@@ -3476,7 +3476,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                     )
                                   })()}
                                 </div>
-                                <p className={`mt-1 px-0.5 font-semibold text-white drop-shadow ${line.length >= 5 ? 'text-[9px]' : 'text-[10px]'} leading-tight break-words`}>
+                                <p className={`mt-1 px-0.5 font-semibold text-white drop-shadow ${line.length >= 5 ? 'text-[9px]' : 'text-[10px]'} truncate`}>
                                   {player.name}
                                 </p>
                               </div>
