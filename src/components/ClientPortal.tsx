@@ -28,6 +28,13 @@ interface PublicLeagueSummary {
   backgroundImageUrl?: string
   logoUrl?: string
   categories: Array<{ id: string; name: string }>
+  socialLinks?: {
+    instagram?: string
+    facebook?: string
+    tiktok?: string
+    youtube?: string
+    x?: string
+  }
 }
 
 interface PublicTeam {
@@ -699,8 +706,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     likes: 0,
     likedByCurrentUser: readPublicLikePreference(clientId),
   }))
-  const [visitorAliasDraft, setVisitorAliasDraft] = useState('')
-  const [visitorAlias, setVisitorAlias] = useState(() => {
+  const [visitorAlias] = useState(() => {
     if (typeof window === 'undefined') return ''
     return window.localStorage.getItem(getPublicAliasStorageKey(clientId)) ?? ''
   })
@@ -800,10 +806,6 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   }, [activeCategoryId, availableCategories, selectedLeague])
 
   useEffect(() => {
-    setVisitorAliasDraft(visitorAlias)
-  }, [visitorAlias])
-
-  useEffect(() => {
     let disposed = false
 
     const run = async () => {
@@ -885,20 +887,6 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`
     window.open(whatsappUrl, '_blank', 'noopener,noreferrer')
   }, [selectedLeague?.name])
-
-  const handleSaveAlias = useCallback(() => {
-    if (typeof window === 'undefined') return
-    const normalized = visitorAliasDraft.trim()
-    setVisitorAlias(normalized)
-    window.localStorage.setItem(getPublicAliasStorageKey(clientId), normalized)
-  }, [clientId, visitorAliasDraft])
-
-  const handleContinueAnonymous = useCallback(() => {
-    if (typeof window === 'undefined') return
-    setVisitorAlias('')
-    setVisitorAliasDraft('')
-    window.localStorage.setItem(getPublicAliasStorageKey(clientId), '')
-  }, [clientId])
 
   const pushInAppFollowAlert = useCallback((title: string, body: string, tone: 'goal' | 'warning' | 'info' = 'info') => {
     setFollowAlert({
