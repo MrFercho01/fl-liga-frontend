@@ -1695,26 +1695,6 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   ])
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !('Notification' in window)) {
-      setNotificationsEnabled(false)
-      return
-    }
-
-    const syncPermission = () => {
-      setNotificationsEnabled(window.Notification.permission === 'granted')
-    }
-
-    syncPermission()
-    window.addEventListener('focus', syncPermission)
-    document.addEventListener('visibilitychange', syncPermission)
-
-    return () => {
-      window.removeEventListener('focus', syncPermission)
-      document.removeEventListener('visibilitychange', syncPermission)
-    }
-  }, [])
-
-  useEffect(() => {
     if (!followAlert) return
 
     const timer = window.setTimeout(() => {
@@ -1774,16 +1754,31 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
 
   const liveSelectedStatus = liveForSelected?.status
 
+  const queueInitialLiveStartersUpdate = useCallback(
+    (
+      updater: (
+        current: Record<string, { home: string[]; away: string[] }>,
+      ) => Record<string, { home: string[]; away: string[] }>,
+    ) => {
+      if (typeof window === 'undefined') return
+      window.setTimeout(() => {
+        setInitialLiveStartersByMatch((current) => updater(current))
+      }, 0)
+    },
+    [],
+  )
+
   useEffect(() => {
     if (!selectedMatchId) {
-      setInitialLiveStartersByMatch({})
+      queueInitialLiveStartersUpdate((current) => (Object.keys(current).length === 0 ? current : {}))
     }
-  }, [selectedMatchId])
+  }, [queueInitialLiveStartersUpdate, selectedMatchId])
 
   useEffect(() => {
     if (!selectedMatch || !liveForSelected) return
+
     if (liveForSelected.status === 'scheduled') {
-      setInitialLiveStartersByMatch((current) => {
+      queueInitialLiveStartersUpdate((current) => {
         if (!current[selectedMatch.id]) return current
         const next = { ...current }
         delete next[selectedMatch.id]
@@ -1792,8 +1787,9 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       return
     }
 
-    setInitialLiveStartersByMatch((current) => {
+    queueInitialLiveStartersUpdate((current) => {
       if (current[selectedMatch.id]) return current
+
       return {
         ...current,
         [selectedMatch.id]: {
@@ -1802,7 +1798,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
         },
       }
     })
-  }, [liveForSelected, selectedMatch])
+  }, [liveForSelected, queueInitialLiveStartersUpdate, selectedMatch])
 
   useEffect(() => {
     if (!liveForSelected?.timer.running) return
@@ -2415,28 +2411,40 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     const sameMatch = previousTrackedMatchIdRef.current === selectedMatch.id
     const previousPhase = sameMatch ? previousLivePhaseRef.current : ''
 
+    const notificationTimers: number[] = []
+    const notifyPhaseChange = (title: string, body: string, tag: string) => {
+      const timer = window.setTimeout(() => {
+        void showFollowNotification(title, body, tag)
+      }, 0)
+      notificationTimers.push(timer)
+    }
+
     if (sameMatch && previousPhase && previousPhase !== currentPhase && matchLikeState.likedByCurrentUser) {
       const label = `${liveForSelected.homeTeam.name} vs ${liveForSelected.awayTeam.name}`
       if (previousPhase === 'scheduled' && currentPhase === 'running') {
-        void showFollowNotification('🟢 Inicia el partido', label, `phase-start-${selectedMatch.id}`)
+        notifyPhaseChange('🟢 Inicia el partido', label, `phase-start-${selectedMatch.id}`)
       }
       if (previousPhase === 'running' && currentPhase === 'break') {
-        void showFollowNotification('⏸️ Termina el primer tiempo', label, `phase-halftime-${selectedMatch.id}`)
+        notifyPhaseChange('⏸️ Termina el primer tiempo', label, `phase-halftime-${selectedMatch.id}`)
       }
       if (previousPhase === 'break' && currentPhase === 'running') {
-        void showFollowNotification('▶️ Inicia el segundo tiempo', label, `phase-second-half-${selectedMatch.id}`)
+        notifyPhaseChange('▶️ Inicia el segundo tiempo', label, `phase-second-half-${selectedMatch.id}`)
       }
       if (previousPhase !== 'penalty_shootout' && currentPhase === 'penalty_shootout') {
-        void showFollowNotification('🥅 Tanda de penales', label, `phase-penalties-${selectedMatch.id}`)
+        notifyPhaseChange('🥅 Tanda de penales', label, `phase-penalties-${selectedMatch.id}`)
       }
       if (previousPhase !== 'finished' && currentPhase === 'finished') {
         const score = `${liveForSelected.homeTeam.stats.goals} - ${liveForSelected.awayTeam.stats.goals}`
-        void showFollowNotification('🏁 Finaliza el partido', `${label} · Marcador final ${score}`, `phase-finished-${selectedMatch.id}`)
+        notifyPhaseChange('🏁 Finaliza el partido', `${label} · Marcador final ${score}`, `phase-finished-${selectedMatch.id}`)
       }
     }
 
     previousTrackedMatchIdRef.current = selectedMatch.id
     previousLivePhaseRef.current = currentPhase
+
+    return () => {
+      notificationTimers.forEach((timer) => window.clearTimeout(timer))
+    }
   }, [liveForSelected, matchLikeState.likedByCurrentUser, selectedMatch, showFollowNotification])
 
   useEffect(() => {

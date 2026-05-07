@@ -57,16 +57,24 @@ const buildHeaders = (headers?: HeadersInit): HeadersInit => {
 }
 
 const apiFetch = async (url: string, init?: RequestInit): Promise<Response> => {
-  const response = await fetch(url, {
-    ...init,
-    headers: buildHeaders(init?.headers),
-  })
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 45_000)
 
-  if (response.status === 401 && authToken && _sessionExpiredCallback) {
-    _sessionExpiredCallback()
+  try {
+    const response = await fetch(url, {
+      ...init,
+      headers: buildHeaders(init?.headers),
+      signal: init?.signal ?? controller.signal,
+    })
+
+    if (response.status === 401 && authToken && _sessionExpiredCallback) {
+      _sessionExpiredCallback()
+    }
+
+    return response
+  } finally {
+    clearTimeout(timeoutId)
   }
-
-  return response
 }
 
 const buildValidationErrorMessage = (payload: {

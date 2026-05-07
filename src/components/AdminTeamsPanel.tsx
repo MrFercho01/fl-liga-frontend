@@ -2,7 +2,7 @@ import { toPng } from 'html-to-image'
 import JSZip from 'jszip'
 import jsQR from 'jsqr'
 import QRCode from 'qrcode'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import * as XLSX from 'xlsx'
 import { apiService } from '../services/api'
 import type { FixtureResponse, FixtureScheduleEntry, PlayedMatchRecord, RegisteredTeam, RoundAwardsRankingEntry } from '../types/admin.ts'
@@ -415,7 +415,6 @@ const TeamLogo = ({
   name: string
   sizeClass: string
 }) => {
-  const [broken, setBroken] = useState(false)
   const initials = name
     .split(' ')
     .filter(Boolean)
@@ -426,14 +425,14 @@ const TeamLogo = ({
   return (
     <div className={`relative flex ${sizeClass} items-center justify-center overflow-hidden rounded border border-slate-300 bg-slate-100 text-[10px] font-semibold text-slate-700`}>
       <span>{initials || 'EQ'}</span>
-      {logoUrl && !broken && (
+      {logoUrl && (
         <img
           src={logoUrl}
           alt={name}
-          crossOrigin="anonymous"
-          referrerPolicy="no-referrer"
           className="absolute inset-0 h-full w-full bg-white object-contain p-0.5"
-          onError={() => setBroken(true)}
+          onError={(event) => {
+            event.currentTarget.style.display = 'none'
+          }}
         />
       )}
     </div>
@@ -454,7 +453,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [teamName, setTeamName] = useState('')
   const [teamLogoUrl, setTeamLogoUrl] = useState('')
   const [teamPrimaryColor, setTeamPrimaryColor] = useState('#3b82f6')
-  const [teamSecondaryColor, setTeamSecondaryColor] = useState('')
+  const [teamSecondaryColor, setTeamSecondaryColor] = useState('#ffffff')
 
   const [newLeagueName, setNewLeagueName] = useState('')
   const [newLeagueCountry, setNewLeagueCountry] = useState('Ecuador')
@@ -485,6 +484,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     assistantPhotoUrl: string
   }>>({})
   const [teamSaveMsg, setTeamSaveMsg] = useState<Record<string, { text: string; ok: boolean }>>({})
+  const [teamSavingById, setTeamSavingById] = useState<Record<string, boolean>>({})
   const [playerSaveMsg, setPlayerSaveMsg] = useState<Record<string, { text: string; ok: boolean }>>({})
   const [playerEditById, setPlayerEditById] = useState<Record<string, PlayerDraft>>({})
   const [playerReplacementByTeam, setPlayerReplacementByTeam] = useState<Record<string, { enabled: boolean; replacePlayerId: string }>>({})
@@ -515,7 +515,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [isSavingFixtureRound, setIsSavingFixtureRound] = useState(false)
   const [isRefreshingFixture, setIsRefreshingFixture] = useState(false)
   const [fixtureActionMsg, setFixtureActionMsg] = useState<{ text: string; ok: boolean } | null>(null)
-  const [mobileLogoOnlyMode, setMobileLogoOnlyMode] = useState(true)
+  const [mobileLogoOnlyMode, setMobileLogoOnlyMode] = useState(false)
   const [mvpMobileLogoOnlyMode, setMvpMobileLogoOnlyMode] = useState(true)
 
   const [leagueSearch, setLeagueSearch] = useState('')
@@ -614,6 +614,23 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   }, [activeCategoryId]) // eslint-disable-line react-hooks/exhaustive-deps
   const activeCategoryCourtsCount = Math.max(1, activeCategoryRules?.courtsCount ?? 1)
   const activeCategoryMaxRegisteredPlayers = Math.max(5, activeCategoryRules?.maxRegisteredPlayers ?? 25)
+  const courtOptions = useMemo(
+    () => Array.from({ length: activeCategoryCourtsCount }, (_, index) => `Cancha ${index + 1}`),
+    [activeCategoryCourtsCount],
+  )
+
+  useEffect(() => {
+    if (activeCategoryCourtsCount <= 1) {
+      setDraftMatchVenue('')
+      return
+    }
+
+    setDraftMatchVenue((current) => {
+      const normalized = current.trim()
+      if (normalized) return normalized
+      return courtOptions[0] ?? ''
+    })
+  }, [activeCategoryCourtsCount, courtOptions])
 
   const selectedTeam = useMemo(() => {
     if (selectedTeamId) {
@@ -896,7 +913,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     setLoading(true)
         const response = await apiService.createTeamWithLogo(selectedLeague.id, activeCategoryId, teamName, teamLogoUrl, {
           primaryColor: teamPrimaryColor,
-          secondaryColor: teamSecondaryColor || undefined,
+          secondaryColor: teamSecondaryColor,
           director: {
             name: teamDirectorDraft.name.trim(),
             ...(teamDirectorDraft.photoUrl ? { photoUrl: teamDirectorDraft.photoUrl } : {}),
@@ -915,7 +932,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
         setTeamName('')
         setTeamLogoUrl('')
         setTeamPrimaryColor('#3b82f6')
-        setTeamSecondaryColor('')
+        setTeamSecondaryColor('#ffffff')
         setTeamDirectorDraft({ name: '', photoUrl: '' })
         setTeamAssistantDraft({ name: '', photoUrl: '' })
         showMessage('¡Equipo creado exitosamente!')
@@ -1439,7 +1456,12 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       return
     }
 
-    if (activeCategoryCourtsCount > 1 && !draftMatchVenue.trim()) {
+    const normalizedDraftVenue =
+      activeCategoryCourtsCount > 1
+        ? draftMatchVenue.trim() || courtOptions[0] || ''
+        : draftMatchVenue.trim()
+
+    if (activeCategoryCourtsCount > 1 && !normalizedDraftVenue) {
       showFixtureMessage('Indica la cancha para este partido', false)
       return
     }
@@ -1459,7 +1481,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       homeTeamId: draftMatchHomeTeamId,
       awayTeamId: draftMatchAwayTeamId,
       scheduledAt: draftMatchScheduledAt,
-      ...(draftMatchVenue.trim() ? { venue: draftMatchVenue.trim() } : {}),
+      ...(normalizedDraftVenue ? { venue: normalizedDraftVenue } : {}),
     }
 
     setFixtureDraftMatchesByRound((current) => ({
@@ -1469,7 +1491,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
     setDraftMatchHomeTeamId('')
     setDraftMatchAwayTeamId('')
-    setDraftMatchVenue('')
+    setDraftMatchVenue(activeCategoryCourtsCount > 1 ? (courtOptions[0] ?? '') : '')
     showFixtureMessage(`Partido agregado al borrador de Fecha ${activeFixtureRound}`, true)
   }
 
@@ -1658,6 +1680,13 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       return
     }
 
+    const restoreLogoOnlyMode = mobileLogoOnlyMode
+    if (restoreLogoOnlyMode) {
+      setMobileLogoOnlyMode(false)
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+    }
+
     try {
       const dataUrl = await toPng(socialCardRef.current, {
         cacheBust: true,
@@ -1671,6 +1700,10 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       link.click()
     } catch {
       showMessage('No se pudo generar la imagen de la fecha')
+    } finally {
+      if (restoreLogoOnlyMode) {
+        setMobileLogoOnlyMode(true)
+      }
     }
   }
 
@@ -2575,6 +2608,10 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       return
     }
 
+    if (teamSavingById[team.id]) {
+      return
+    }
+
     const edit = teamEditById[team.id]
     if (!edit) {
       showTeamMsg(team.id, 'Sin cambios pendientes', false)
@@ -2586,36 +2623,41 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       return
     }
 
-    const response = await apiService.updateTeam(team.id, {
-      name: edit.name.trim(),
-      logoUrl: edit.logoUrl || undefined,
-      primaryColor: edit.primaryColor || undefined,
-      secondaryColor: edit.secondaryColor || undefined,
-      technicalStaff: {
-        director: {
-          name: edit.directorName.trim(),
-          ...(edit.directorPhotoUrl ? { photoUrl: edit.directorPhotoUrl } : {}),
+    setTeamSavingById((current) => ({ ...current, [team.id]: true }))
+    try {
+      const response = await apiService.updateTeam(team.id, {
+        name: edit.name.trim(),
+        logoUrl: edit.logoUrl || undefined,
+        primaryColor: edit.primaryColor || undefined,
+        secondaryColor: edit.secondaryColor || undefined,
+        technicalStaff: {
+          director: {
+            name: edit.directorName.trim(),
+            ...(edit.directorPhotoUrl ? { photoUrl: edit.directorPhotoUrl } : {}),
+          },
+          assistant: {
+            name: edit.assistantName.trim(),
+            ...(edit.assistantPhotoUrl ? { photoUrl: edit.assistantPhotoUrl } : {}),
+          },
         },
-        assistant: {
-          name: edit.assistantName.trim(),
-          ...(edit.assistantPhotoUrl ? { photoUrl: edit.assistantPhotoUrl } : {}),
-        },
-      },
-    })
+      })
 
-    if (!response.ok) {
-      showTeamMsg(team.id, response.message || 'Error al guardar', false)
-      return
+      if (!response.ok) {
+        showTeamMsg(team.id, response.message || 'Error al guardar', false)
+        return
+      }
+
+      showTeamMsg(team.id, '✓ Equipo actualizado', true)
+      setTeamEditById((current) => {
+        const next = { ...current }
+        delete next[team.id]
+        return next
+      })
+      // Actualizar el equipo directamente en el array de teams con los datos del backend
+      setTeams((current) => current.map((t) => t.id === team.id ? response.data : t))
+    } finally {
+      setTeamSavingById((current) => ({ ...current, [team.id]: false }))
     }
-
-    showTeamMsg(team.id, '✓ Equipo actualizado', true)
-    setTeamEditById((current) => {
-      const next = { ...current }
-      delete next[team.id]
-      return next
-    })
-    // Actualizar el equipo directamente en el array de teams con los datos del backend
-    setTeams((current) => current.map((t) => t.id === team.id ? response.data : t))
   }
 
   const toggleTeamActive = async (team: RegisteredTeam, nextActive: boolean) => {
@@ -3678,12 +3720,19 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     type="file"
                     accept="image/*"
                     className="hidden"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0]
-                      if (!file) return
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      const input = event.currentTarget
+                      const file = input.files?.[0]
+                      if (!file) {
+                        input.value = ''
+                        return
+                      }
                       void toDataUrl(file)
                         .then((imageUrl) => setTeamLogoUrl(imageUrl))
                         .catch(() => showMessage('No se pudo leer el logo del equipo'))
+                        .finally(() => {
+                          input.value = ''
+                        })
                     }}
                   />
                 </label>
@@ -3718,12 +3767,19 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     type="file"
                     accept="image/*"
                     className="hidden"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0]
-                      if (!file) return
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      const input = event.currentTarget
+                      const file = input.files?.[0]
+                      if (!file) {
+                        input.value = ''
+                        return
+                      }
                       void toDataUrl(file)
                         .then((photoUrl) => setTeamDirectorDraft((current) => ({ ...current, photoUrl })))
                         .catch(() => showMessage('No se pudo leer la foto del DT'))
+                        .finally(() => {
+                          input.value = ''
+                        })
                     }}
                   />
                 </label>
@@ -3739,12 +3795,19 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     type="file"
                     accept="image/*"
                     className="hidden"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0]
-                      if (!file) return
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                      const input = event.currentTarget
+                      const file = input.files?.[0]
+                      if (!file) {
+                        input.value = ''
+                        return
+                      }
                       void toDataUrl(file)
                         .then((photoUrl) => setTeamAssistantDraft((current) => ({ ...current, photoUrl })))
                         .catch(() => showMessage('No se pudo leer la foto del AT'))
+                        .finally(() => {
+                          input.value = ''
+                        })
                     }}
                   />
                 </label>
@@ -3840,10 +3903,9 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                                   src={teamEditById[team.id]?.logoUrl || team.logoUrl}
                                   alt={team.name}
                                   className="mx-auto h-7 w-7 rounded border border-white/20 bg-white object-contain"
-                                  onClick={() => document.getElementById(`team-logo-input-${team.id}`)?.click()}
                                 />
                               ) : (
-                                <span className="flex h-7 w-7 cursor-pointer items-center justify-center rounded border border-white/20 bg-slate-700 text-slate-400" onClick={() => document.getElementById(`team-logo-input-${team.id}`)?.click()}>—</span>
+                                <span className="flex h-7 w-7 cursor-pointer items-center justify-center rounded border border-white/20 bg-slate-700 text-slate-400">—</span>
                               )}
                               <input
                                 id={`team-logo-input-${team.id}`}
@@ -3978,7 +4040,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                                 <button type="button" title={team.active === false ? 'Reactivar' : 'Desactivar'} disabled={isReadOnlySeason} onClick={() => void toggleTeamActive(team, team.active === false)} className="flex items-center justify-center rounded p-0.5 hover:bg-amber-600/30 disabled:opacity-60">
                                   {team.active === false ? <span className="text-emerald-400">&#8635;</span> : <span className="text-amber-400">&#10006;</span>}
                                 </button>
-                                <button type="button" title="Actualizar" disabled={isReadOnlySeason} onClick={() => void saveTeamEdit(team)} className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-0.5 text-[10px] font-semibold text-primary-100 hover:bg-primary-500/30 disabled:opacity-60">Guardar</button>
+                                <button type="button" title="Actualizar" disabled={isReadOnlySeason || Boolean(teamSavingById[team.id])} onClick={() => void saveTeamEdit(team)} className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-0.5 text-[10px] font-semibold text-primary-100 hover:bg-primary-500/30 disabled:opacity-60">{teamSavingById[team.id] ? 'Guardando...' : 'Guardar'}</button>
                                 <button type="button" title="Eliminar" disabled={isReadOnlySeason} onClick={() => requestDeleteTeam(team)} className="flex items-center justify-center rounded p-0.5 hover:bg-rose-600/30 disabled:opacity-60"><DeleteIcon className="h-4 w-4 text-rose-300" /></button>
                               </div>
                               {teamSaveMsg[team.id] && (
@@ -4874,7 +4936,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   <div ref={socialCardRef} className="mt-3 rounded-xl border border-slate-300 bg-white p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <TeamLogo logoUrl={selectedLeague.logoUrl} name={selectedLeague.name} sizeClass="h-12 w-12" />
+                      <TeamLogo logoUrl={digitalCardLeagueLogoDataUrl || selectedLeague.logoUrl} name={selectedLeague.name} sizeClass="h-12 w-12" />
                       <div>
                         <p className="text-base font-semibold text-slate-900">{selectedLeague.name}</p>
                         <p className="text-xs text-slate-600">Temporada {selectedLeague.season} · Fecha {activeFixtureRound}</p>
@@ -4945,6 +5007,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     </button>
                   </div>
                   <p className="mt-1 text-[11px] text-slate-400">Agrega partidos, modifica local/visitante/hora y al final guarda la fecha completa. Los partidos ya jugados se conservan y no se eliminan automáticamente.</p>
+                  <p className="mt-1 text-[11px] text-cyan-200/80">Canchas configuradas en esta categoría: {activeCategoryCourtsCount}</p>
                   {fixtureActionMsg && (
                     <p className={`mt-2 rounded border px-2 py-1 text-xs ${fixtureActionMsg.ok ? 'border-emerald-300/40 bg-emerald-500/10 text-emerald-100' : 'border-rose-300/40 bg-rose-500/10 text-rose-100'}`}>
                       {fixtureActionMsg.text}
@@ -4989,13 +5052,15 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                       />
 
                       {activeCategoryCourtsCount > 1 && (
-                        <input
-                          type="text"
+                        <select
                           value={draftMatchVenue}
                           onChange={(event) => setDraftMatchVenue(event.target.value)}
-                          placeholder="Cancha"
                           className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white"
-                        />
+                        >
+                          {courtOptions.map((court) => (
+                            <option key={court} value={court}>{court}</option>
+                          ))}
+                        </select>
                       )}
 
                       <button
@@ -5067,13 +5132,18 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                             />
 
                             {activeCategoryCourtsCount > 1 && (
-                              <input
-                                type="text"
-                                value={draft.venue ?? ''}
+                              <select
+                                value={draft.venue ?? courtOptions[0] ?? ''}
                                 onChange={(event) => updateDraftMatchInRound(draft.id, { venue: event.target.value })}
-                                placeholder="Cancha"
                                 className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white"
-                              />
+                              >
+                                {!draft.venue || courtOptions.includes(draft.venue)
+                                  ? null
+                                  : <option value={draft.venue}>{draft.venue}</option>}
+                                {courtOptions.map((court) => (
+                                  <option key={court} value={court}>{court}</option>
+                                ))}
+                              </select>
                             )}
 
                             <button
@@ -5269,7 +5339,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
                 <div ref={roundAwardsCardRef} className="mt-3 rounded-xl border border-slate-300 bg-white p-4">
                   <div className="flex items-center gap-3">
-                    <TeamLogo logoUrl={selectedLeague.logoUrl} name={selectedLeague.name} sizeClass="h-10 w-10" />
+                    <TeamLogo logoUrl={digitalCardLeagueLogoDataUrl || selectedLeague.logoUrl} name={selectedLeague.name} sizeClass="h-10 w-10" />
                     <div>
                       <p className="text-sm font-semibold text-slate-900">{selectedLeague.name}</p>
                       <p className="text-xs text-slate-600">Mejores jugadoras · Fecha {activeFixtureRound}</p>
