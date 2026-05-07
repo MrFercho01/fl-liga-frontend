@@ -557,6 +557,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
   const [videoFormByMatch, setVideoFormByMatch] = useState<Record<string, { file: File | null; name: string; url: string; mode: 'file' | 'url' | 'camera' }>>({})
   const [videoUploadingByMatch, setVideoUploadingByMatch] = useState<Record<string, boolean>>({})
+  const [videoUploadErrorByMatch, setVideoUploadErrorByMatch] = useState<Record<string, string>>({})
   const teamsRequestSeqRef = useRef(0)
   const fixtureRequestSeqRef = useRef(0)
 
@@ -2774,6 +2775,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       return
     }
     setVideoUploadingByMatch((prev) => ({ ...prev, [matchId]: true }))
+    setVideoUploadErrorByMatch((prev) => ({ ...prev, [matchId]: '' }))
     try {
       let response
       if (hasFile && form.file) {
@@ -2790,10 +2792,12 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
         })
       }
       if (!response.ok) {
+        setVideoUploadErrorByMatch((prev) => ({ ...prev, [matchId]: response.message }))
         showMessage(response.message)
         return
       }
       showMessage('Video agregado')
+      setVideoUploadErrorByMatch((prev) => ({ ...prev, [matchId]: '' }))
       setVideoFormByMatch((prev) => ({ ...prev, [matchId]: { file: null, name: '', url: '', mode: 'file' } }))
       await refreshFixture(false)
     } finally {
@@ -5271,6 +5275,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                       .map((record) => {
                         const form = videoFormByMatch[record.matchId] ?? { file: null, name: '', url: '', mode: 'file' as const }
                         const isUploading = videoUploadingByMatch[record.matchId] ?? false
+                        const uploadError = videoUploadErrorByMatch[record.matchId] ?? ''
                         return (
                           <div key={record.matchId} className="rounded border border-white/10 bg-slate-800/50 p-2">
                             <p className="mb-1 text-xs font-medium text-slate-200">
@@ -5358,6 +5363,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                               >
                                 {isUploading ? 'Subiendo...' : 'Agregar video'}
                               </button>
+                              {uploadError && <p className="mt-1 text-[10px] text-red-400">⚠ {uploadError}</p>}
                             </div>
                           </div>
                         )
