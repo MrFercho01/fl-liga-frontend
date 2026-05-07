@@ -767,7 +767,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
     [leagues, selectedLeagueId],
   )
 
-  const availableCategories = selectedLeague?.categories ?? []
+  const availableCategories = useMemo(() => selectedLeague?.categories ?? [], [selectedLeague])
   const activeCategoryId =
     selectedCategoryId && availableCategories.some((category) => category.id === selectedCategoryId)
       ? selectedCategoryId
