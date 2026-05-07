@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { io } from 'socket.io-client'
 import { StoreFooter } from './StoreFooter'
 import { apiBaseUrl, apiService } from '../services/api'
@@ -734,9 +734,11 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   const [errorMessage, setErrorMessage] = useState('')
 
   useEffect(() => {
-    setKnockoutBracket(null)
-    setKnockoutBracketLoaded(false)
-    setLeagueFinalResult(null)
+    startTransition(() => {
+      setKnockoutBracket(null)
+      setKnockoutBracketLoaded(false)
+      setLeagueFinalResult(null)
+    })
   }, [selectedLeagueId, selectedCategoryId])
 
   useEffect(() => {
@@ -1197,6 +1199,31 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
             scheduleByRound.set(entry.round, roundItems)
             return
           }
+        }
+      }
+
+      // Handle knockout matchIds: ko__bracketId__homeTeamId__awayTeamId__r<roundIdx>__s<slot>[__l<leg>]
+      if (entry.matchId.startsWith('ko__')) {
+        const parts = entry.matchId.split('__')
+        if (parts.length >= 6 && parts[2] && parts[3]) {
+          const homeTeamId = parts[2]
+          const awayTeamId = parts[3]
+          const pairKey = buildRoundTeamsKey(entry.round, homeTeamId, awayTeamId)
+          if (scheduledPairKeys.has(pairKey)) return
+          scheduledPairKeys.add(pairKey)
+          const roundItems = scheduleByRound.get(entry.round) ?? []
+          roundItems.push({
+            id: entry.matchId,
+            round: entry.round,
+            homeTeamId,
+            awayTeamId,
+            scheduledAt: normalizeScheduledAt(entry.scheduledAt, entry.status),
+            ...(entry.venue ? { venue: entry.venue } : {}),
+            ...(entry.status ? { status: entry.status } : {}),
+            played: fixturePayload.playedMatchIds.includes(entry.matchId),
+          })
+          scheduleByRound.set(entry.round, roundItems)
+          return
         }
       }
 
@@ -3292,14 +3319,33 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                 {round.matches.map((match) => {
                                   const isFinished = match.status === 'finished'
                                   const isBye = match.isBye
+
+                                  // Find played match(es) for this bracket slot
+                                  const koBase = `ko__${knockoutBracket.id}__`
+                                  const playedForSlot = isFinished
+                                    ? (fixturePayload?.playedMatches ?? []).filter((pm) => {
+                                        if (!pm.matchId.startsWith(koBase)) return false
+                                        const parts = pm.matchId.split('__')
+                                        return parts[4] === `r${round.index}` && parts[5] === `s${match.slot}`
+                                      })
+                                    : []
+                                  const singlePm = !match.twoLegged ? playedForSlot[0] : undefined
+                                  const leg1Pm = match.twoLegged
+                                    ? playedForSlot.find((pm) => pm.matchId.split('__')[6] === 'l1')
+                                    : undefined
+                                  const leg2Pm = match.twoLegged
+                                    ? playedForSlot.find((pm) => pm.matchId.split('__')[6] === 'l2')
+                                    : undefined
+
                                   return (
                                     <div
                                       key={match.id}
+                                      onClick={isFinished && !match.twoLegged && singlePm ? () => setSelectedMatchId(singlePm.matchId) : undefined}
                                       className={`rounded-lg border p-2 text-[11px] ${
                                         isFinished
                                           ? 'border-green-400/20 bg-green-900/20'
                                           : 'border-white/10 bg-slate-800/60'
-                                      }`}
+                                      } ${isFinished && !match.twoLegged && singlePm ? 'cursor-pointer hover:border-green-400/50 hover:bg-green-900/35 transition-colors' : ''}`}
                                     >
                                       {isBye ? (
                                         <p className="font-semibold text-slate-200">{match.homeTeamName ?? '?'} <span className="text-slate-500 font-normal">(BYE)</span></p>
@@ -3313,11 +3359,35 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                             <span className="truncate">{match.awayTeamName ?? '?'}</span>
                                             {isFinished && <span className="ml-1">{match.awayGoals}</span>}
                                           </div>
-                                          {/* Two-legged per-leg scores */}
+                                          {/* Two-legged per-leg scores — clickable if played */}
                                           {match.twoLegged && (match.leg1Done || match.leg2Done) && (
-                                            <div className="mt-1 space-y-0.5 text-slate-500">
-                                              {match.leg1Done && <p>Ida: {match.leg1HomeGoals ?? '-'} - {match.leg1AwayGoals ?? '-'}</p>}
-                                              {match.leg2Done && <p>Vuelta: {match.leg2AwayGoals ?? '-'} - {match.leg2HomeGoals ?? '-'}</p>}
+                                            <div className="mt-1 space-y-0.5">
+                                              {match.leg1Done && (
+                                                leg1Pm ? (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setSelectedMatchId(leg1Pm.matchId)}
+                                                    className="block w-full text-left text-slate-400 hover:text-green-300 transition-colors"
+                                                  >
+                                                    Ida: {match.leg1HomeGoals ?? '-'} - {match.leg1AwayGoals ?? '-'} <span className="text-[10px]">↗</span>
+                                                  </button>
+                                                ) : (
+                                                  <p className="text-slate-500">Ida: {match.leg1HomeGoals ?? '-'} - {match.leg1AwayGoals ?? '-'}</p>
+                                                )
+                                              )}
+                                              {match.leg2Done && (
+                                                leg2Pm ? (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setSelectedMatchId(leg2Pm.matchId)}
+                                                    className="block w-full text-left text-slate-400 hover:text-green-300 transition-colors"
+                                                  >
+                                                    Vuelta: {match.leg2AwayGoals ?? '-'} - {match.leg2HomeGoals ?? '-'} <span className="text-[10px]">↗</span>
+                                                  </button>
+                                                ) : (
+                                                  <p className="text-slate-500">Vuelta: {match.leg2AwayGoals ?? '-'} - {match.leg2HomeGoals ?? '-'}</p>
+                                                )
+                                              )}
                                             </div>
                                           )}
                                           {isFinished && (match.penaltyHome !== null) && (
@@ -3325,6 +3395,9 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                           )}
                                           {!isFinished && !match.homeTeamId && (
                                             <p className="text-slate-500">Por definir</p>
+                                          )}
+                                          {isFinished && !match.twoLegged && singlePm && (
+                                            <p className="mt-1 text-[10px] text-slate-500">Toca para ver detalle ↗</p>
                                           )}
                                         </>
                                       )}
