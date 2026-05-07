@@ -110,10 +110,9 @@ const normalizePosition = (value: string) => {
   return playerPositionOptions.includes(normalized as (typeof playerPositionOptions)[number]) ? normalized : 'POR'
 }
 
-const getNicknameFromName = (name: string) => {
+const getFirstSurnameFromName = (name: string) => {
   const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return ''
-  return parts[parts.length - 1] ?? parts[0] ?? ''
+  return parts[0] ?? ''
 }
 
 const pickRandomDorsal = (usedNumbers: Set<number>) => {
@@ -127,6 +126,13 @@ const pickRandomDorsal = (usedNumbers: Set<number>) => {
   }
 
   return Math.floor(Date.now() % 999) + 1
+}
+
+const pickSequentialDorsal = (usedNumbers: Set<number>) => {
+  for (let candidate = 1; candidate <= 999; candidate += 1) {
+    if (!usedNumbers.has(candidate)) return candidate
+  }
+  return pickRandomDorsal(usedNumbers)
 }
 
 const parseExcelPlayers = (rows: unknown[][], existingNumbers: Set<number>): BulkImportPlayerDraft[] => {
@@ -174,15 +180,70 @@ const parseExcelPlayers = (rows: unknown[][], existingNumbers: Set<number>): Bul
 
     let dorsalValue = Number.parseInt(rawNumber, 10)
     if (!Number.isFinite(dorsalValue) || dorsalValue <= 0 || usedNumbers.has(dorsalValue)) {
-      dorsalValue = pickRandomDorsal(usedNumbers)
+      dorsalValue = pickSequentialDorsal(usedNumbers)
     }
     usedNumbers.add(dorsalValue)
 
     parsed.push({
       id: createDraftId(),
       name: rawName,
-      nickname: getNicknameFromName(rawName),
+      nickname: getFirstSurnameFromName(rawName),
       age: Number.isFinite(ageValue) ? String(ageValue) : rawAge,
+      number: String(dorsalValue),
+      position: 'POR',
+      ...(rowError ? { error: rowError } : {}),
+    })
+  }
+
+  return parsed
+}
+
+const parsePlayersFromImageText = (text: string, existingNumbers: Set<number>): BulkImportPlayerDraft[] => {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+  const usedNumbers = new Set(existingNumbers)
+  const parsed: BulkImportPlayerDraft[] = []
+
+  for (const line of lines) {
+    const normalized = normalizeLabel(line)
+    if (!normalized) continue
+
+    if (
+      normalized.includes('apellido')
+      || normalized.includes('nombre')
+      || normalized.includes('edad')
+      || normalized.includes('jugador')
+      || normalized.startsWith('lista')
+      || normalized.startsWith('equipo')
+      || normalized.startsWith('categoria')
+    ) {
+      continue
+    }
+
+    const cleanedLine = line.replace(/^\d+[).:\-\s]+/, '').trim()
+    if (!cleanedLine) continue
+
+    const ageMatch = cleanedLine.match(/(\d{1,2})\s*$/)
+    if (!ageMatch) continue
+
+    const ageRaw = ageMatch[1] ?? ''
+    const ageValue = Number.parseInt(ageRaw, 10)
+    const rawName = cleanedLine.slice(0, ageMatch.index).replace(/[,:;|]+$/, '').trim()
+
+    if (!rawName) continue
+
+    const rowError = (!Number.isFinite(ageValue) || ageValue < 5 || ageValue > 99) ? 'Edad inválida (5-99)' : ''
+    const dorsalValue = pickSequentialDorsal(usedNumbers)
+    usedNumbers.add(dorsalValue)
+
+    parsed.push({
+      id: createDraftId(),
+      name: rawName,
+      nickname: getFirstSurnameFromName(rawName),
+      age: Number.isFinite(ageValue) ? String(ageValue) : ageRaw,
       number: String(dorsalValue),
       position: 'POR',
       ...(rowError ? { error: rowError } : {}),
@@ -2264,9 +2325,47 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       setBulkImportFileNameByTeam((current) => ({ ...current, [teamId]: file.name }))
 
       const invalidCount = parsedRows.filter((row) => row.error).length
-      showMessage(`Pre-carga lista: ${parsedRows.length} jugador(es)${invalidCount ? ` · ${invalidCount} con observación` : ''}`)
+      showMessage(`Pre-carga Excel lista: ${parsedRows.length} jugador(es)${invalidCount ? ` · ${invalidCount} con observación` : ''}`)
     } catch {
       showMessage('No se pudo leer el archivo Excel')
+    } finally {
+      setBulkImportLoadingByTeam((current) => ({ ...current, [teamId]: false }))
+    }
+  }
+
+  const handleImportPlayersImage = async (teamId: string, file: File) => {
+    if (isReadOnlySeason) {
+      showMessage('Temporada histórica: solo lectura')
+      return
+    }
+
+    const targetTeam = teams.find((item) => item.id === teamId)
+    if (!targetTeam) {
+      showMessage('Equipo no encontrado para importación')
+      return
+    }
+
+    setBulkImportLoadingByTeam((current) => ({ ...current, [teamId]: true }))
+
+    try {
+      const tesseract = await import('tesseract.js')
+      const result = await tesseract.recognize(file, 'spa+eng')
+      const detectedText = result?.data?.text ?? ''
+      const existingNumbers = new Set(targetTeam.players.map((player) => player.number))
+      const parsedRows = parsePlayersFromImageText(detectedText, existingNumbers)
+
+      if (parsedRows.length === 0) {
+        showMessage('No se detectaron filas válidas en la imagen. Intenta con una foto más nítida.')
+        return
+      }
+
+      setBulkImportPlayersByTeam((current) => ({ ...current, [teamId]: parsedRows }))
+      setBulkImportFileNameByTeam((current) => ({ ...current, [teamId]: file.name }))
+
+      const invalidCount = parsedRows.filter((row) => row.error).length
+      showMessage(`Pre-carga imagen lista: ${parsedRows.length} jugador(es)${invalidCount ? ` · ${invalidCount} con observación` : ''}`)
+    } catch {
+      showMessage('No se pudo procesar la imagen para OCR')
     } finally {
       setBulkImportLoadingByTeam((current) => ({ ...current, [teamId]: false }))
     }
@@ -2328,7 +2427,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     for (const row of rows) {
       const name = row.name.trim()
       const age = Number.parseInt(row.age, 10)
-      const nickname = row.nickname.trim() || getNicknameFromName(name)
+      const nickname = row.nickname.trim() || getFirstSurnameFromName(name)
       const position = normalizePosition(row.position)
 
       if (!name) {
@@ -2343,7 +2442,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
       let dorsal = Number.parseInt(row.number, 10)
       if (!Number.isFinite(dorsal) || dorsal <= 0 || usedNumbers.has(dorsal)) {
-        dorsal = pickRandomDorsal(usedNumbers)
+        dorsal = pickSequentialDorsal(usedNumbers)
       }
       usedNumbers.add(dorsal)
 
@@ -4103,17 +4202,17 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   </button>
                   <div className="mt-3 rounded border border-white/10 bg-slate-900/50 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs font-semibold text-slate-100">Importación masiva desde Excel</p>
+                      <p className="text-xs font-semibold text-slate-100">Importación masiva: Excel o imagen</p>
                       {bulkImportFileNameByTeam[selectedTeam.id] && (
                         <span className="text-[11px] text-slate-400">Archivo: {bulkImportFileNameByTeam[selectedTeam.id]}</span>
                       )}
                     </div>
                     <p className="mt-1 text-[11px] text-slate-400">
-                      Formato sugerido: Nombre, Edad y Dorsal (opcional). Si falta dorsal, se asigna automáticamente. Apodo se genera desde el apellido.
+                      Excel: columnas Nombre/Edad y Dorsal opcional. Imagen: lista tipo &ldquo;Apellidos Nombres Edad&rdquo;. Si no viene apodo, se usa el primer apellido; si no viene dorsal, se asigna secuencialmente.
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <label className="inline-flex cursor-pointer items-center rounded border border-cyan-300/40 bg-cyan-500/10 px-3 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/20">
-                        {bulkImportLoadingByTeam[selectedTeam.id] ? 'Leyendo Excel...' : 'Cargar Excel'}
+                        {bulkImportLoadingByTeam[selectedTeam.id] ? 'Procesando...' : 'Cargar Excel'}
                         <input
                           type="file"
                           accept=".xlsx,.xls,.csv"
@@ -4123,6 +4222,21 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                             const file = event.target.files?.[0]
                             if (!file) return
                             void handleImportPlayersExcel(selectedTeam.id, file)
+                            event.currentTarget.value = ''
+                          }}
+                        />
+                      </label>
+                      <label className="inline-flex cursor-pointer items-center rounded border border-violet-300/40 bg-violet-500/10 px-3 py-1 text-xs font-semibold text-violet-100 hover:bg-violet-500/20">
+                        {bulkImportLoadingByTeam[selectedTeam.id] ? 'Procesando...' : 'Cargar imagen'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={Boolean(bulkImportLoadingByTeam[selectedTeam.id]) || isReadOnlySeason}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0]
+                            if (!file) return
+                            void handleImportPlayersImage(selectedTeam.id, file)
                             event.currentTarget.value = ''
                           }}
                         />
