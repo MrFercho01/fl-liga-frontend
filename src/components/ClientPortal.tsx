@@ -4011,7 +4011,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                       {selectedMatchHistory.record.highlightVideos.map((video) => (
                         <div key={video.id} className="rounded border border-white/10 bg-slate-900/70 p-2">
                           <p className="mb-2 truncate text-[11px] font-semibold text-slate-200">{video.name}</p>
-                          <video src={video.url} controls preload="metadata" playsInline className="w-full rounded-lg bg-slate-950" />
+                          <video src={video.url.replace(/^http:\/\//i, 'https://')} controls preload="metadata" playsInline className="w-full rounded-lg bg-slate-950" />
                         </div>
                       ))}
                     </div>
