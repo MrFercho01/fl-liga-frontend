@@ -555,7 +555,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [isQrScanning, setIsQrScanning] = useState(false)
   const [qrScanError, setQrScanError] = useState('')
 
-  const [videoFormByMatch, setVideoFormByMatch] = useState<Record<string, { file: File | null; name: string; url: string; mode: 'file' | 'url' }>>({})
+  const [videoFormByMatch, setVideoFormByMatch] = useState<Record<string, { file: File | null; name: string; url: string; mode: 'file' | 'url' | 'camera' }>>({})
   const [videoUploadingByMatch, setVideoUploadingByMatch] = useState<Record<string, boolean>>({})
   const teamsRequestSeqRef = useRef(0)
   const fixtureRequestSeqRef = useRef(0)
@@ -2767,7 +2767,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const handleUploadMatchVideo = async (matchId: string, categoryId: string) => {
     if (!selectedLeague) return
     const form = videoFormByMatch[matchId] ?? { file: null, name: '', url: '', mode: 'file' as const }
-    const hasFile = form.mode !== 'url' && form.file
+    const hasFile = (form.mode === 'file' || form.mode === 'camera') && form.file
     const hasUrl = form.mode === 'url' && form.url.trim()
     if (!hasFile && !hasUrl) {
       showMessage('Selecciona un archivo o ingresa una URL')
@@ -5302,8 +5302,13 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                                 <button
                                   type="button"
                                   onClick={() => setVideoFormByMatch((prev) => ({ ...prev, [record.matchId]: { ...(prev[record.matchId] ?? { file: null, name: '', url: '' }), mode: 'file' } }))}
-                                  className={`rounded px-2 py-0.5 text-xs ${form.mode !== 'url' ? 'bg-cyan-600/40 text-cyan-100' : 'text-slate-400'}`}
-                                >Archivo</button>
+                                  className={`rounded px-2 py-0.5 text-xs ${form.mode === 'file' ? 'bg-cyan-600/40 text-cyan-100' : 'text-slate-400'}`}
+                                >Galería</button>
+                                <button
+                                  type="button"
+                                  onClick={() => setVideoFormByMatch((prev) => ({ ...prev, [record.matchId]: { ...(prev[record.matchId] ?? { file: null, name: '', url: '' }), mode: 'camera' } }))}
+                                  className={`rounded px-2 py-0.5 text-xs ${form.mode === 'camera' ? 'bg-orange-600/40 text-orange-100' : 'text-slate-400'}`}
+                                >🎥 Cámara</button>
                                 <button
                                   type="button"
                                   onClick={() => setVideoFormByMatch((prev) => ({ ...prev, [record.matchId]: { ...(prev[record.matchId] ?? { file: null, name: '', url: '' }), mode: 'url' } }))}
@@ -5317,13 +5322,25 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                                 onChange={(e) => setVideoFormByMatch((prev) => ({ ...prev, [record.matchId]: { ...(prev[record.matchId] ?? { file: null, url: '', mode: 'file' as const }), name: e.target.value } }))}
                                 className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white placeholder-slate-500"
                               />
-                              {form.mode !== 'url' ? (
+                              {form.mode === 'file' ? (
                                 <input
                                   type="file"
                                   accept="video/*"
                                   onChange={(e) => setVideoFormByMatch((prev) => ({ ...prev, [record.matchId]: { ...(prev[record.matchId] ?? { name: '', url: '', mode: 'file' as const }), file: e.target.files?.[0] ?? null } }))}
                                   className="text-xs text-slate-300"
                                 />
+                              ) : form.mode === 'camera' ? (
+                                <div className="flex flex-col gap-1">
+                                  <p className="text-[10px] text-orange-300/80">Abre la cámara para grabar en el momento (penal, gol, etc.)</p>
+                                  <input
+                                    type="file"
+                                    accept="video/*"
+                                    capture="environment"
+                                    onChange={(e) => setVideoFormByMatch((prev) => ({ ...prev, [record.matchId]: { ...(prev[record.matchId] ?? { name: '', url: '', mode: 'camera' as const }), file: e.target.files?.[0] ?? null } }))}
+                                    className="text-xs text-orange-200"
+                                  />
+                                  {form.file && <p className="text-[10px] text-green-400">✓ Video listo: {form.file.name}</p>}
+                                </div>
                               ) : (
                                 <input
                                   type="url"
