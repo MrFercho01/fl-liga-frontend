@@ -5290,7 +5290,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                                         Eliminar
                                       </button>
                                     </div>
-                                    <video src={video.url} controls className="w-full rounded" />
+                                    <video src={video.url.replace(/^http:\/\//i, 'https://')} controls className="w-full rounded" />
                                   </div>
                                 ))}
                               </div>
