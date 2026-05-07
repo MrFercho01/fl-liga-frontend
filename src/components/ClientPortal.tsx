@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { io } from 'socket.io-client'
 import { StoreFooter } from './StoreFooter'
 import { apiBaseUrl, apiService } from '../services/api'
-import type { FixtureScheduleEntry } from '../types/admin'
+import type { FixtureScheduleEntry, LeagueCategoryResult } from '../types/admin'
 import type { LiveEvent, LiveMatch } from '../types/live'
 
 /** Convierte una clave VAPID en base64url al Uint8Array que requiere pushManager.subscribe */
@@ -701,6 +701,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   const [publicKeepersPage, setPublicKeepersPage] = useState(1)
   const [knockoutBracket, setKnockoutBracket] = useState<import('../types/knockout').KnockoutBracket | null>(null)
   const [knockoutBracketLoaded, setKnockoutBracketLoaded] = useState(false)
+  const [leagueFinalResult, setLeagueFinalResult] = useState<LeagueCategoryResult | null>(null)
   const [publicEngagement, setPublicEngagement] = useState<PublicEngagementState>(() => ({
     visits: 0,
     likes: 0,
@@ -731,6 +732,12 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   const [loadingLeagues, setLoadingLeagues] = useState(true)
   const [loadingFixture, setLoadingFixture] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+
+  useEffect(() => {
+    setKnockoutBracket(null)
+    setKnockoutBracketLoaded(false)
+    setLeagueFinalResult(null)
+  }, [selectedLeagueId, selectedCategoryId])
 
   useEffect(() => {
     let disposed = false
@@ -2795,9 +2802,13 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                           const leagueId = selectedLeague?.id
                           const catId = activeCategoryId
                           if (leagueId && catId) {
-                            const res = await apiService.getKnockoutBracketPublic(leagueId, catId)
+                            const [res, finalResultResponse] = await Promise.all([
+                              apiService.getKnockoutBracketPublic(leagueId, catId),
+                              apiService.getLeagueCategoryFinalResultPublic(leagueId, catId),
+                            ])
                             setKnockoutBracketLoaded(true)
                             if (res.ok) setKnockoutBracket(res.data)
+                            if (finalResultResponse.ok) setLeagueFinalResult(finalResultResponse.data)
                           }
                         }
                       }}
@@ -3247,6 +3258,26 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                     {publicStatsTab === 'knockout' && (
                       <div className="space-y-3">
                         <p className="text-sm font-semibold text-white">Cuadro de Fases Finales</p>
+                        {leagueFinalResult && (
+                          <div className="rounded-xl border border-yellow-300/55 bg-gradient-to-r from-yellow-500/25 via-amber-500/15 to-orange-500/25 p-3">
+                            <p className="text-[11px] font-bold uppercase tracking-wide text-yellow-100">Campeón de la categoría</p>
+                            <div className="mt-2 flex items-center gap-2">
+                              {leagueFinalResult.championTeamLogoUrl ? (
+                                <img
+                                  src={leagueFinalResult.championTeamLogoUrl}
+                                  alt={leagueFinalResult.championTeamName}
+                                  className="h-10 w-10 rounded-lg border border-yellow-200/60 bg-white object-contain p-1"
+                                />
+                              ) : (
+                                <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-yellow-200/60 text-xs font-bold text-yellow-100">🏆</div>
+                              )}
+                              <div>
+                                <p className="text-sm font-bold text-yellow-50">{leagueFinalResult.championTeamName}</p>
+                                <p className="text-[11px] text-yellow-100/90">Finalizado: {new Date(leagueFinalResult.finalizedAt).toLocaleString()}</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         {!knockoutBracket && knockoutBracketLoaded && (
                           <p className="text-xs text-slate-400">No hay bracket de fases finales disponible para esta categoría.</p>
                         )}
@@ -3274,11 +3305,11 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                         <p className="font-semibold text-slate-200">{match.homeTeamName ?? '?'} <span className="text-slate-500 font-normal">(BYE)</span></p>
                                       ) : (
                                         <>
-                                          <div className={`flex justify-between ${match.winnerId === match.homeTeamId ? 'font-bold text-green-300' : 'text-slate-200'}`}>
+                                          <div className={`flex justify-between ${match.winnerId === match.homeTeamId ? (match.winnerId === leagueFinalResult?.championTeamId ? 'font-bold text-yellow-200' : 'font-bold text-green-300') : 'text-slate-200'}`}>
                                             <span className="truncate">{match.homeTeamName ?? '?'}</span>
                                             {isFinished && <span className="ml-1">{match.homeGoals}</span>}
                                           </div>
-                                          <div className={`flex justify-between ${match.winnerId === match.awayTeamId ? 'font-bold text-green-300' : 'text-slate-200'}`}>
+                                          <div className={`flex justify-between ${match.winnerId === match.awayTeamId ? (match.winnerId === leagueFinalResult?.championTeamId ? 'font-bold text-yellow-200' : 'font-bold text-green-300') : 'text-slate-200'}`}>
                                             <span className="truncate">{match.awayTeamName ?? '?'}</span>
                                             {isFinished && <span className="ml-1">{match.awayGoals}</span>}
                                           </div>

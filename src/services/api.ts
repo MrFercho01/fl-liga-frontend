@@ -9,6 +9,8 @@ import type {
   CreateLeaguePayload,
   FixtureScheduleEntry,
   FixtureResponse,
+  LeagueCategoryResult,
+  LeagueFinalizationPreview,
   LoginPayload,
   PlayedMatchRecord,
   RegisteredTeam,
@@ -1528,6 +1530,70 @@ export const apiService = {
       }
 
       const payload = (await response.json()) as { data: RoundAwardsRankingEntry[] }
+      return { ok: true, data: payload.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
+  async getLeagueFinalizationPreview(
+    leagueId: string,
+    categoryId: string,
+  ): Promise<ApiResponse<LeagueFinalizationPreview>> {
+    try {
+      const response = await apiFetch(`${apiBaseUrl}/api/admin/leagues/${leagueId}/categories/${categoryId}/finalization-preview`)
+      if (!response.ok) {
+        const payload = (await response.json()) as { message?: string }
+        return { ok: false, message: payload.message ?? 'No se pudo cargar el cierre del campeonato' }
+      }
+
+      const payload = (await response.json()) as { data: LeagueFinalizationPreview }
+      return { ok: true, data: payload.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
+  async finalizeLeagueCategory(
+    leagueId: string,
+    categoryId: string,
+    payload: {
+      leagueMvpPlayerId: string
+      bestGoalkeeperPlayerId: string
+      topScorerPlayerId: string
+    },
+  ): Promise<ApiResponse<LeagueCategoryResult>> {
+    try {
+      const response = await apiFetch(`${apiBaseUrl}/api/admin/leagues/${leagueId}/categories/${categoryId}/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        const errorPayload = (await response.json()) as { message?: string }
+        return { ok: false, message: errorPayload.message ?? 'No se pudo finalizar el campeonato' }
+      }
+
+      const responsePayload = (await response.json()) as { data: LeagueCategoryResult }
+      return { ok: true, data: responsePayload.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
+  async getLeagueCategoryFinalResultPublic(
+    leagueId: string,
+    categoryId: string,
+  ): Promise<ApiResponse<LeagueCategoryResult | null>> {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/public/leagues/${leagueId}/categories/${categoryId}/final-result`)
+      if (!response.ok) {
+        const payload = (await response.json()) as { message?: string }
+        return { ok: false, message: payload.message ?? 'No se pudo cargar resultado final' }
+      }
+
+      const payload = (await response.json()) as { data: LeagueCategoryResult | null }
       return { ok: true, data: payload.data }
     } catch {
       return { ok: false, message: 'Sin conexión con backend' }

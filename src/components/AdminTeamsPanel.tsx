@@ -5,7 +5,15 @@ import QRCode from 'qrcode'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import * as XLSX from 'xlsx'
 import { apiService } from '../services/api'
-import type { FixtureResponse, FixtureScheduleEntry, PlayedMatchRecord, RegisteredTeam, RoundAwardsRankingEntry } from '../types/admin.ts'
+import type {
+  FixtureResponse,
+  FixtureScheduleEntry,
+  LeagueCategoryResult,
+  LeagueFinalizationPreview,
+  PlayedMatchRecord,
+  RegisteredTeam,
+  RoundAwardsRankingEntry,
+} from '../types/admin.ts'
 import type { League } from '../types/league.ts'
 import { DeleteIcon } from './ActionIcons'
 
@@ -512,6 +520,13 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [roundAwardsRanking, setRoundAwardsRanking] = useState<RoundAwardsRankingEntry[]>([])
   const [playedMatchesCountByRound, setPlayedMatchesCountByRound] = useState<Record<number, number>>({})
   const [playedMatchesRecords, setPlayedMatchesRecords] = useState<PlayedMatchRecord[]>([])
+  const [finalizationPreview, setFinalizationPreview] = useState<LeagueFinalizationPreview | null>(null)
+  const [finalizedCategoryResult, setFinalizedCategoryResult] = useState<LeagueCategoryResult | null>(null)
+  const [isLoadingFinalizationPreview, setIsLoadingFinalizationPreview] = useState(false)
+  const [isFinalizingCategory, setIsFinalizingCategory] = useState(false)
+  const [leagueMvpFinalPlayerId, setLeagueMvpFinalPlayerId] = useState('')
+  const [bestGoalkeeperFinalPlayerId, setBestGoalkeeperFinalPlayerId] = useState('')
+  const [topScorerFinalPlayerId, setTopScorerFinalPlayerId] = useState('')
   const [isSavingFixtureRound, setIsSavingFixtureRound] = useState(false)
   const [isRefreshingFixture, setIsRefreshingFixture] = useState(false)
   const [fixtureActionMsg, setFixtureActionMsg] = useState<{ text: string; ok: boolean } | null>(null)
@@ -707,20 +722,31 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       setRoundAwardsRanking([])
       setPlayedMatchesCountByRound({})
       setPlayedMatchesRecords([])
+      setFinalizationPreview(null)
+      setFinalizedCategoryResult(null)
+      setLeagueMvpFinalPlayerId('')
+      setBestGoalkeeperFinalPlayerId('')
+      setTopScorerFinalPlayerId('')
       return
     }
 
     const requestSeq = ++fixtureRequestSeqRef.current
+    setIsLoadingFinalizationPreview(true)
 
-    const [fixtureResponse, scheduleResponse, roundAwardsResponse, rankingResponse, playedResponse] = await Promise.all([
+    const [fixtureResponse, scheduleResponse, roundAwardsResponse, rankingResponse, playedResponse, finalizationPreviewResponse] = await Promise.all([
       apiService.getLeagueFixture(selectedLeague.id, activeCategoryId),
       apiService.getFixtureSchedule(selectedLeague.id, activeCategoryId),
       apiService.getRoundAwards(selectedLeague.id, activeCategoryId),
       apiService.getRoundAwardsRanking(selectedLeague.id, activeCategoryId),
       apiService.getPlayedMatches(selectedLeague.id, activeCategoryId),
+      apiService.getLeagueFinalizationPreview(selectedLeague.id, activeCategoryId),
     ])
 
-    if (requestSeq !== fixtureRequestSeqRef.current) return
+    if (requestSeq !== fixtureRequestSeqRef.current) {
+      return
+    }
+
+    setIsLoadingFinalizationPreview(false)
 
     if (fixtureResponse.ok) {
       setFixture(fixtureResponse.data)
@@ -772,6 +798,14 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     } else {
       setPlayedMatchesCountByRound({})
       setPlayedMatchesRecords([])
+    }
+
+    if (finalizationPreviewResponse.ok) {
+      setFinalizationPreview(finalizationPreviewResponse.data)
+      setFinalizedCategoryResult(finalizationPreviewResponse.data.existingResult)
+    } else {
+      setFinalizationPreview(null)
+      setFinalizedCategoryResult(null)
     }
   }, [activeCategoryId, selectedLeague])
 
@@ -1922,6 +1956,60 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const totalRoundMatches = fixtureMatchesByRound.length
   const isActiveRoundCompleted = totalRoundMatches > 0 && roundCompletedMatchesCount >= totalRoundMatches
   const top5RoundAwardsRanking = roundAwardsRanking.slice(0, 5)
+
+  useEffect(() => {
+    if (!finalizationPreview) return
+
+    const existing = finalizationPreview.existingResult
+    setLeagueMvpFinalPlayerId((current) => {
+      if (current && finalizationPreview.leagueMvpCandidates.some((item) => item.playerId === current)) return current
+      return existing?.leagueMvpPlayerId ?? finalizationPreview.leagueMvpCandidates[0]?.playerId ?? ''
+    })
+    setBestGoalkeeperFinalPlayerId((current) => {
+      if (current && finalizationPreview.bestGoalkeeperCandidates.some((item) => item.playerId === current)) return current
+      return existing?.bestGoalkeeperPlayerId ?? finalizationPreview.bestGoalkeeperCandidates[0]?.playerId ?? ''
+    })
+    setTopScorerFinalPlayerId((current) => {
+      if (current && finalizationPreview.topScorerCandidates.some((item) => item.playerId === current)) return current
+      return existing?.topScorerPlayerId ?? finalizationPreview.topScorerCandidates[0]?.playerId ?? ''
+    })
+  }, [finalizationPreview])
+
+  const finalizeCategoryChampionship = async () => {
+    if (isReadOnlySeason) {
+      showMessage('Temporada histórica: solo lectura')
+      return
+    }
+    if (!selectedLeague || !activeCategoryId) return
+    if (!leagueMvpFinalPlayerId || !bestGoalkeeperFinalPlayerId || !topScorerFinalPlayerId) {
+      showMessage('Debes seleccionar Jugadora de la liga, Mejor arquera y Goleadora')
+      return
+    }
+
+    setIsFinalizingCategory(true)
+    try {
+      const response = await apiService.finalizeLeagueCategory(selectedLeague.id, activeCategoryId, {
+        leagueMvpPlayerId: leagueMvpFinalPlayerId,
+        bestGoalkeeperPlayerId: bestGoalkeeperFinalPlayerId,
+        topScorerPlayerId: topScorerFinalPlayerId,
+      })
+
+      if (!response.ok) {
+        showMessage(response.message)
+        return
+      }
+
+      setFinalizedCategoryResult(response.data)
+      showMessage('Categoría finalizada con éxito y campeón destacado para el portal público')
+
+      const previewResponse = await apiService.getLeagueFinalizationPreview(selectedLeague.id, activeCategoryId)
+      if (previewResponse.ok) {
+        setFinalizationPreview(previewResponse.data)
+      }
+    } finally {
+      setIsFinalizingCategory(false)
+    }
+  }
 
   const setMatchBestPlayer = (
     matchKey: string,
@@ -5526,6 +5614,93 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                         </p>
                       ))}
                     </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded border border-yellow-300/35 bg-yellow-500/10 p-3">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs font-semibold text-yellow-100">Cierre de campeonato por categoría</p>
+                    {isLoadingFinalizationPreview ? (
+                      <span className="text-[11px] text-slate-300">Cargando opciones...</span>
+                    ) : finalizationPreview?.finalReady ? (
+                      <span className="text-[11px] text-emerald-200">Final completada: listo para finalizar</span>
+                    ) : (
+                      <span className="text-[11px] text-amber-200">{finalizationPreview?.finalReason ?? 'La final aún no está lista'}</span>
+                    )}
+                  </div>
+
+                  {finalizationPreview?.champion && (
+                    <div className="mt-2 flex items-center gap-2 rounded border border-yellow-300/40 bg-yellow-500/15 px-2 py-1.5 text-xs text-yellow-50">
+                      <TeamLogo logoUrl={finalizationPreview.champion.teamLogoUrl} name={finalizationPreview.champion.teamName} sizeClass="h-7 w-7" />
+                      <span className="font-semibold">Campeón detectado: {finalizationPreview.champion.teamName}</span>
+                    </div>
+                  )}
+
+                  <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+                    <select
+                      value={leagueMvpFinalPlayerId}
+                      onChange={(event) => setLeagueMvpFinalPlayerId(event.target.value)}
+                      className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white"
+                    >
+                      <option value="">Jugadora de la liga</option>
+                      {(finalizationPreview?.leagueMvpCandidates ?? []).map((item) => (
+                        <option key={`final-league-mvp-${item.playerId}`} value={item.playerId}>
+                          {item.playerName} · {item.teamName} · {item.votes ?? 0} voto(s)
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={bestGoalkeeperFinalPlayerId}
+                      onChange={(event) => setBestGoalkeeperFinalPlayerId(event.target.value)}
+                      className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white"
+                    >
+                      <option value="">Mejor arquera</option>
+                      {(finalizationPreview?.bestGoalkeeperCandidates ?? []).map((item) => {
+                        const average = (item.goalsConceded ?? 0) / Math.max(1, item.matches ?? 0)
+                        return (
+                          <option key={`final-keeper-${item.playerId}`} value={item.playerId}>
+                            {item.playerName} · {item.teamName} · GC prom {average.toFixed(2)}
+                          </option>
+                        )
+                      })}
+                    </select>
+
+                    <select
+                      value={topScorerFinalPlayerId}
+                      onChange={(event) => setTopScorerFinalPlayerId(event.target.value)}
+                      className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white"
+                    >
+                      <option value="">Goleadora de la liga</option>
+                      {(finalizationPreview?.topScorerCandidates ?? []).map((item) => (
+                        <option key={`final-scorer-${item.playerId}`} value={item.playerId}>
+                          {item.playerName} · {item.teamName} · {item.goals ?? 0} goles
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={
+                        isReadOnlySeason
+                        || isFinalizingCategory
+                        || !finalizationPreview?.finalReady
+                        || !leagueMvpFinalPlayerId
+                        || !bestGoalkeeperFinalPlayerId
+                        || !topScorerFinalPlayerId
+                      }
+                      onClick={() => void finalizeCategoryChampionship()}
+                      className="rounded border border-yellow-200/50 bg-yellow-400/20 px-3 py-1 text-xs font-semibold text-yellow-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isFinalizingCategory ? 'Finalizando...' : 'Finalizar campeonato'}
+                    </button>
+                    {finalizedCategoryResult && (
+                      <span className="text-[11px] text-emerald-200">
+                        Finalizado: {new Date(finalizedCategoryResult.finalizedAt).toLocaleString()}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

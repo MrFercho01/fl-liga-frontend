@@ -199,6 +199,57 @@ export interface RoundAwardsRankingEntry {
   votes: number
 }
 
+export interface LeagueFinalizationCandidate {
+  playerId: string
+  playerName: string
+  teamId: string
+  teamName: string
+  photoUrl?: string
+  votes?: number
+  goals?: number
+  goalsConceded?: number
+  matches?: number
+}
+
+export interface LeagueCategoryResult {
+  leagueId: string
+  categoryId: string
+  finalizedAt: string
+  championTeamId: string
+  championTeamName: string
+  championTeamLogoUrl?: string
+  leagueMvpPlayerId: string
+  leagueMvpPlayerName: string
+  leagueMvpTeamId: string
+  leagueMvpTeamName: string
+  leagueMvpPlayerPhotoUrl?: string
+  bestGoalkeeperPlayerId: string
+  bestGoalkeeperPlayerName: string
+  bestGoalkeeperTeamId: string
+  bestGoalkeeperTeamName: string
+  bestGoalkeeperPlayerPhotoUrl?: string
+  topScorerPlayerId: string
+  topScorerPlayerName: string
+  topScorerTeamId: string
+  topScorerTeamName: string
+  topScorerPlayerPhotoUrl?: string
+  topScorerGoals: number
+}
+
+export interface LeagueFinalizationPreview {
+  finalReady: boolean
+  finalReason?: string
+  champion: {
+    teamId: string
+    teamName: string
+    teamLogoUrl?: string
+  } | null
+  leagueMvpCandidates: LeagueFinalizationCandidate[]
+  bestGoalkeeperCandidates: LeagueFinalizationCandidate[]
+  topScorerCandidates: LeagueFinalizationCandidate[]
+  existingResult: LeagueCategoryResult | null
+}
+
 export interface PlayedMatchRecord {
   matchId: string
   leagueId: string
