@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { io } from 'socket.io-client'
 import { StoreFooter } from './StoreFooter'
 import { apiBaseUrl, apiService } from '../services/api'
@@ -2636,32 +2636,85 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
 
         {!isMatchScreen && (() => {
           const social = selectedLeague?.socialLinks
-          const links: { key: string; label: string; url?: string; icon: string; colorClass: string }[] = [
-            { key: 'instagram', label: 'Instagram', url: social?.instagram, icon: '📸', colorClass: 'border-pink-400/40 bg-pink-500/15 text-pink-100 hover:bg-pink-500/30' },
-            { key: 'facebook', label: 'Facebook', url: social?.facebook, icon: '📘', colorClass: 'border-blue-400/40 bg-blue-500/15 text-blue-100 hover:bg-blue-500/30' },
-            { key: 'tiktok', label: 'TikTok', url: social?.tiktok, icon: '🎵', colorClass: 'border-slate-300/30 bg-slate-700/60 text-slate-100 hover:bg-slate-600/60' },
-            { key: 'youtube', label: 'YouTube', url: social?.youtube, icon: '▶️', colorClass: 'border-red-400/40 bg-red-500/15 text-red-100 hover:bg-red-500/30' },
-            { key: 'x', label: 'X', url: social?.x, icon: '✖', colorClass: 'border-slate-400/30 bg-slate-800/60 text-slate-100 hover:bg-slate-700/60' },
+          const SocialIcons: Record<string, ReactElement> = {
+            instagram: (
+              <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+              </svg>
+            ),
+            facebook: (
+              <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+              </svg>
+            ),
+            tiktok: (
+              <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/>
+              </svg>
+            ),
+            youtube: (
+              <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                <path d="M23.495 6.205a3.007 3.007 0 0 0-2.088-2.088c-1.87-.501-9.396-.501-9.396-.501s-7.507-.01-9.396.501A3.007 3.007 0 0 0 .527 6.205a31.247 31.247 0 0 0-.522 5.805 31.247 31.247 0 0 0 .522 5.783 3.007 3.007 0 0 0 2.088 2.088c1.868.502 9.396.502 9.396.502s7.506 0 9.396-.502a3.007 3.007 0 0 0 2.088-2.088 31.247 31.247 0 0 0 .5-5.783 31.247 31.247 0 0 0-.5-5.805zM9.609 15.601V8.408l6.264 3.602z"/>
+              </svg>
+            ),
+            x: (
+              <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/>
+              </svg>
+            ),
+          }
+          const socialConfig: Record<string, { gradient: string; glow: string; ring: string; label: string }> = {
+            instagram: { gradient: 'from-purple-600 via-pink-500 to-orange-400', glow: 'shadow-pink-500/40', ring: 'ring-pink-400/30', label: 'Instagram' },
+            facebook:  { gradient: 'from-blue-700 to-blue-500',                  glow: 'shadow-blue-500/40',  ring: 'ring-blue-400/30',  label: 'Facebook' },
+            tiktok:    { gradient: 'from-slate-900 via-slate-700 to-slate-900',   glow: 'shadow-slate-400/20', ring: 'ring-slate-400/20', label: 'TikTok' },
+            youtube:   { gradient: 'from-red-700 to-red-500',                     glow: 'shadow-red-500/40',   ring: 'ring-red-400/30',   label: 'YouTube' },
+            x:         { gradient: 'from-slate-800 to-slate-600',                 glow: 'shadow-slate-500/30', ring: 'ring-slate-400/20', label: 'X' },
+          }
+          const links: { key: string; url?: string }[] = [
+            { key: 'instagram', url: social?.instagram },
+            { key: 'facebook',  url: social?.facebook },
+            { key: 'tiktok',    url: social?.tiktok },
+            { key: 'youtube',   url: social?.youtube },
+            { key: 'x',         url: social?.x },
           ].filter((link) => !!link.url)
 
           if (links.length === 0) return null
 
           return (
-            <div className="mb-4 rounded-xl border border-white/15 bg-slate-900/60 p-3">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Síguenos en redes</p>
-              <div className="flex flex-wrap gap-2">
-                {links.map((link) => (
-                  <a
-                    key={link.key}
-                    href={link.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${link.colorClass}`}
-                  >
-                    <span>{link.icon}</span>
-                    <span>{link.label}</span>
-                  </a>
-                ))}
+            <div className="relative mb-4 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 via-slate-800/80 to-slate-900 p-4 shadow-xl">
+              {/* Fondo animado */}
+              <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                <div className="animate-pulse-slow absolute -left-10 -top-10 h-32 w-32 rounded-full bg-pink-500/10 blur-2xl" />
+                <div className="animate-pulse-slow absolute -right-10 bottom-0 h-24 w-24 rounded-full bg-blue-500/10 blur-2xl" style={{ animationDelay: '1s' }} />
+              </div>
+              {/* Header */}
+              <div className="relative mb-3 flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+                </span>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-300">Síguenos en redes</p>
+              </div>
+              {/* Botones */}
+              <div className="relative flex flex-wrap gap-2">
+                {links.map((link) => {
+                  const cfg = socialConfig[link.key]
+                  const icon = SocialIcons[link.key]
+                  return (
+                    <a
+                      key={link.key}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`group relative flex items-center gap-2 overflow-hidden rounded-full bg-gradient-to-r ${cfg.gradient} px-4 py-2 text-xs font-bold text-white shadow-lg ${cfg.glow} ring-1 ${cfg.ring} transition-all duration-300 hover:scale-105 hover:shadow-xl active:scale-95`}
+                    >
+                      <span className="relative z-10 transition-transform duration-300 group-hover:scale-110">{icon}</span>
+                      <span className="relative z-10">{cfg.label}</span>
+                      {/* Shimmer */}
+                      <span className="absolute inset-0 -translate-x-full bg-white/10 transition-transform duration-500 group-hover:translate-x-full" />
+                    </a>
+                  )
+                })}
               </div>
             </div>
           )
