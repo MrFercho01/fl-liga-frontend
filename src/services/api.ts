@@ -58,9 +58,9 @@ const buildHeaders = (headers?: HeadersInit): HeadersInit => {
   }
 }
 
-const apiFetch = async (url: string, init?: RequestInit): Promise<Response> => {
+const apiFetch = async (url: string, init?: RequestInit, timeoutMs = 45_000): Promise<Response> => {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 45_000)
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
     const response = await fetch(url, {
@@ -1675,7 +1675,7 @@ export const apiService = {
       const response = await apiFetch(`${apiBaseUrl}/api/admin/leagues/${leagueId}/played-matches/${matchId}/videos/upload`, {
         method: 'POST',
         body: formData,
-      })
+      }, 180_000)
 
       if (!response.ok) {
         const errorPayload = (await response.json()) as { message?: string }

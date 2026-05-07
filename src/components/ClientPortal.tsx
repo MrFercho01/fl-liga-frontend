@@ -1083,6 +1083,18 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   }, [activeCategoryId, clientId, normalizeFixturePayload, selectedLeague])
 
   useEffect(() => {
+    if (!selectedMatchId) return
+
+    const fixtureTimer = window.setInterval(() => {
+      void refreshFixture()
+    }, 20000)
+
+    return () => {
+      window.clearInterval(fixtureTimer)
+    }
+  }, [refreshFixture, selectedMatchId])
+
+  useEffect(() => {
     const fetchLive = async () => {
       const response = await apiService.getAllLiveMatches()
       if (response.ok) {
