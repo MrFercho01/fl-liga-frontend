@@ -1,5 +1,6 @@
 import type { League } from '../types/league.ts'
 import type { LiveMatch, LiveSettings, LiveStaffRole, LiveTimerAction } from '../types/live.ts'
+import type { KnockoutBracket, KnockoutFormatOption } from '../types/knockout.ts'
 import type {
   AuditLogEntry,
   AuthUser,
@@ -792,6 +793,42 @@ export const apiService = {
     }
   },
 
+  async startPenaltyShootout(matchId: string): Promise<ApiResponse<LiveMatch>> {
+    try {
+      const response = await apiFetch(`${apiBaseUrl}/api/admin/live/penalty/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchId }),
+      })
+      if (!response.ok) {
+        const payload = (await response.json()) as { message?: string }
+        return { ok: false, message: payload.message ?? 'No se pudo iniciar tanda de penales' }
+      }
+      const payload = (await response.json()) as { data: LiveMatch }
+      return { ok: true, data: payload.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
+  async registerPenaltyKick(matchId: string, team: 'home' | 'away', result: 'goal' | 'miss'): Promise<ApiResponse<LiveMatch>> {
+    try {
+      const response = await apiFetch(`${apiBaseUrl}/api/admin/live/penalty/kick`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchId, team, result }),
+      })
+      if (!response.ok) {
+        const payload = (await response.json()) as { message?: string }
+        return { ok: false, message: payload.message ?? 'No se pudo registrar el tiro' }
+      }
+      const payload = (await response.json()) as { data: LiveMatch }
+      return { ok: true, data: payload.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
   async updateLiveSettings(matchId: string, settings: Partial<LiveSettings>): Promise<ApiResponse<LiveMatch>> {
     try {
       const response = await apiFetch(`${apiBaseUrl}/api/admin/live/settings`, {
@@ -1044,6 +1081,13 @@ export const apiService = {
       backgroundImageUrl?: string
       logoUrl?: string
       categories?: CreateLeaguePayload['categories']
+      socialLinks?: {
+        instagram?: string
+        facebook?: string
+        tiktok?: string
+        youtube?: string
+        x?: string
+      }
     },
   ): Promise<ApiResponse<League>> {
     try {
@@ -1118,6 +1162,68 @@ export const apiService = {
 
       const responsePayload = (await response.json()) as { data: League }
       return { ok: true, data: responsePayload.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
+  async createCategory(
+    leagueId: string,
+    payload: { name: string; minAge: number; maxAge: number | null },
+  ): Promise<ApiResponse<{ id: string; name: string; minAge: number; maxAge: number | null; rules: object }>> {
+    try {
+      const response = await apiFetch(`${apiBaseUrl}/api/admin/leagues/${leagueId}/categories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const err = (await response.json()) as { message?: string }
+        return { ok: false, message: err.message ?? 'No se pudo crear la categoría' }
+      }
+      const res = (await response.json()) as { data: { id: string; name: string; minAge: number; maxAge: number | null; rules: object } }
+      return { ok: true, data: res.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
+  async updateCategory(
+    leagueId: string,
+    categoryId: string,
+    payload: { name?: string; minAge?: number; maxAge?: number | null },
+  ): Promise<ApiResponse<{ id: string; name: string; minAge: number; maxAge: number | null; rules: object }>> {
+    try {
+      const response = await apiFetch(`${apiBaseUrl}/api/admin/leagues/${leagueId}/categories/${categoryId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const err = (await response.json()) as { message?: string }
+        return { ok: false, message: err.message ?? 'No se pudo actualizar la categoría' }
+      }
+      const res = (await response.json()) as { data: { id: string; name: string; minAge: number; maxAge: number | null; rules: object } }
+      return { ok: true, data: res.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
+  async deleteCategory(
+    leagueId: string,
+    categoryId: string,
+  ): Promise<ApiResponse<{ id: string }>> {
+    try {
+      const response = await apiFetch(`${apiBaseUrl}/api/admin/leagues/${leagueId}/categories/${categoryId}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) {
+        const err = (await response.json()) as { message?: string }
+        return { ok: false, message: err.message ?? 'No se pudo eliminar la categoría' }
+      }
+      const res = (await response.json()) as { data: { id: string } }
+      return { ok: true, data: res.data }
     } catch {
       return { ok: false, message: 'Sin conexión con backend' }
     }
@@ -1528,6 +1634,140 @@ export const apiService = {
 
       const responsePayload = (await response.json()) as { data: PlayedMatchRecord }
       return { ok: true, data: responsePayload.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
+  // ─── Knockout bracket ──────────────────────────────────────────────────────
+
+  async getKnockoutFormats(
+    leagueId: string,
+    categoryId: string,
+    n: number,
+  ): Promise<ApiResponse<KnockoutFormatOption[]>> {
+    try {
+      const response = await apiFetch(
+        `${apiBaseUrl}/api/admin/leagues/${leagueId}/categories/${categoryId}/knockout/formats?n=${n}`,
+      )
+      if (!response.ok) {
+        const err = (await response.json()) as { message?: string }
+        return { ok: false, message: err.message ?? 'Error al obtener formatos' }
+      }
+      const payload = (await response.json()) as { data: KnockoutFormatOption[] }
+      return { ok: true, data: payload.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
+  async getKnockoutBracketAdmin(
+    leagueId: string,
+    categoryId: string,
+  ): Promise<ApiResponse<KnockoutBracket | null>> {
+    try {
+      const response = await apiFetch(
+        `${apiBaseUrl}/api/admin/leagues/${leagueId}/categories/${categoryId}/knockout`,
+      )
+      if (!response.ok) {
+        const err = (await response.json()) as { message?: string }
+        return { ok: false, message: err.message ?? 'Error al obtener bracket' }
+      }
+      const payload = (await response.json()) as { data: KnockoutBracket | null }
+      return { ok: true, data: payload.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
+  async getKnockoutBracketPublic(
+    leagueId: string,
+    categoryId: string,
+  ): Promise<ApiResponse<KnockoutBracket | null>> {
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/public/leagues/${leagueId}/categories/${categoryId}/knockout`,
+      )
+      if (!response.ok) {
+        const err = (await response.json()) as { message?: string }
+        return { ok: false, message: err.message ?? 'Error al obtener bracket' }
+      }
+      const payload = (await response.json()) as { data: KnockoutBracket | null }
+      return { ok: true, data: payload.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
+  async createKnockout(
+    leagueId: string,
+    categoryId: string,
+    payload: {
+      format: string
+      seedingMethod: string
+      qualifiedTeams: { teamId: string; teamName: string; position: number }[]
+    },
+  ): Promise<ApiResponse<KnockoutBracket>> {
+    try {
+      const response = await apiFetch(
+        `${apiBaseUrl}/api/admin/leagues/${leagueId}/categories/${categoryId}/knockout`,
+        { method: 'POST', body: JSON.stringify(payload) },
+      )
+      if (!response.ok) {
+        const err = (await response.json()) as { message?: string }
+        return { ok: false, message: err.message ?? 'Error al crear bracket' }
+      }
+      const resp = (await response.json()) as { data: KnockoutBracket }
+      return { ok: true, data: resp.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
+  async registerKnockoutResult(
+    leagueId: string,
+    categoryId: string,
+    payload: {
+      knockoutMatchId: string
+      leg?: 1 | 2
+      winnerId?: string
+      winnerName?: string
+      homeGoals: number
+      awayGoals: number
+      penaltyHome?: number | null
+      penaltyAway?: number | null
+    },
+  ): Promise<ApiResponse<KnockoutBracket>> {
+    try {
+      const response = await apiFetch(
+        `${apiBaseUrl}/api/admin/leagues/${leagueId}/categories/${categoryId}/knockout/result`,
+        { method: 'PUT', body: JSON.stringify(payload) },
+      )
+      if (!response.ok) {
+        const err = (await response.json()) as { message?: string }
+        return { ok: false, message: err.message ?? 'Error al registrar resultado' }
+      }
+      const resp = (await response.json()) as { data: KnockoutBracket }
+      return { ok: true, data: resp.data }
+    } catch {
+      return { ok: false, message: 'Sin conexión con backend' }
+    }
+  },
+
+  async deleteKnockout(
+    leagueId: string,
+    categoryId: string,
+  ): Promise<ApiResponse<{ ok: boolean }>> {
+    try {
+      const response = await apiFetch(
+        `${apiBaseUrl}/api/admin/leagues/${leagueId}/categories/${categoryId}/knockout`,
+        { method: 'DELETE' },
+      )
+      if (!response.ok) {
+        const err = (await response.json()) as { message?: string }
+        return { ok: false, message: err.message ?? 'Error al eliminar bracket' }
+      }
+      return { ok: true, data: { ok: true } }
     } catch {
       return { ok: false, message: 'Sin conexión con backend' }
     }

@@ -40,6 +40,13 @@ export interface CreateLeaguePayload {
   themeColor?: string
   backgroundImageUrl?: string
   logoUrl?: string
+  socialLinks?: {
+    instagram?: string
+    facebook?: string
+    tiktok?: string
+    youtube?: string
+    x?: string
+  }
   categories: Array<{
     name: string
     minAge: number
@@ -266,7 +273,9 @@ export interface PlayedMatchRecord {
       | 'staff_red'
     teamName: string
     playerName: string
+    playerId?: string
     substitutionInPlayerName?: string
+    substitutionInPlayerId?: string
     staffRole?: 'director' | 'assistant'
   }>
   highlightVideos: Array<{
@@ -274,5 +283,7 @@ export interface PlayedMatchRecord {
     name: string
     url: string
   }>
+  walkover?: boolean
+  walkoverWinner?: 'home' | 'away'
   playedAt: string
 }

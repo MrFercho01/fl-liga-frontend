@@ -20,6 +20,7 @@ import type {
 } from './types/admin.ts'
 import type { League } from './types/league'
 import type { LiveEvent, LiveMatch, LivePlayer, LiveStaffRole, LiveTeam } from './types/live'
+import type { KnockoutBracket, KnockoutFormatOption } from './types/knockout.ts'
 
 const leagueTitle = 'FL League'
 const authUserStorageKey = '@fl_liga_auth_user'
@@ -74,6 +75,7 @@ interface CompetitionRulesDraft {
   finalStageFinalTwoLegged: boolean
   doubleRoundRobin: boolean
   regularSeasonRounds: number
+  seriesCount: 3 | 5
 }
 
 interface FormationOption {
@@ -181,11 +183,6 @@ const buildFormationOptions = (playersOnField: number): FormationOption[] => {
 const sameStringArray = (left: string[], right: string[]) =>
   left.length === right.length && left.every((item, index) => item === right[index])
 
-const clampInt = (value: number, minimum: number, maximum: number, fallback: number) => {
-  const normalized = Number.isFinite(value) ? Math.trunc(value) : fallback
-  return Math.min(maximum, Math.max(minimum, normalized))
-}
-
 const normalizeLabel = (value: string) =>
   value
     .trim()
@@ -203,11 +200,14 @@ const formatCompactPlayerName = (name: string, maxLength = 18) => {
     return `${cleaned.slice(0, Math.max(1, maxLength - 1))}…`
   }
 
-  const firstInitial = words[0].charAt(0).toUpperCase()
-  const lastName = words[words.length - 1]
-  const compact = `${firstInitial}. ${lastName}`
+  // Formato de origen: Apellido1 Apellido2 Nombre1 Nombre2
+  // Formato requerido: N1. Apellido1
+  const surname = words[0]
+  const firstName = words.length >= 3 ? words[2] : words[words.length - 1]
+  const firstInitial = firstName.charAt(0).toUpperCase()
+  const compact = `${firstInitial}. ${surname}`
   if (compact.length <= maxLength) return compact
-  return `${firstInitial}. ${lastName.slice(0, Math.max(1, maxLength - 4))}…`
+  return `${firstInitial}. ${surname.slice(0, Math.max(1, maxLength - 4))}…`
 }
 
 const parseFormationLines = (formationKey?: string) => {
@@ -372,11 +372,12 @@ function App() {
   })
   const [loading, setLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
-  const [adminView, setAdminView] = useState<'ligas' | 'partidos' | 'configuracion' | 'gestion' | 'historial' | 'auditoria'>('ligas')
+  const [adminView, setAdminView] = useState<'ligas' | 'partidos' | 'gestion' | 'historial' | 'auditoria' | 'finales'>('ligas')
 
   const [matchCategoryId, setMatchCategoryId] = useState('')
   const [leagueTeams, setLeagueTeams] = useState<RegisteredTeam[]>([])
   const [leagueFixture, setLeagueFixture] = useState<FixtureResponse | null>(null)
+  const [matchesLoading, setMatchesLoading] = useState(false)
   const [selectedPendingMatchId, setSelectedPendingMatchId] = useState('')
   const [selectedPendingRound, setSelectedPendingRound] = useState('')
   const [matchesTab, setMatchesTab] = useState<'regular' | 'finales'>('regular')
@@ -385,6 +386,9 @@ function App() {
   const [fixtureDateDraft, setFixtureDateDraft] = useState('')
   const [fixtureVenueDraft, setFixtureVenueDraft] = useState('')
   const [hoveredStarterId, setHoveredStarterId] = useState('')
+  const [pendingHighlightFile, setPendingHighlightFile] = useState<File | null>(null)
+  const [pendingHighlightMatchId, setPendingHighlightMatchId] = useState('')
+  const [uploadingHighlightVideo, setUploadingHighlightVideo] = useState(false)
   const [teamFormationById, setTeamFormationById] = useState<Record<string, string>>({})
   const [savingFormation, setSavingFormation] = useState(false)
   const [starterSlots, setStarterSlots] = useState<string[]>([])
@@ -465,6 +469,17 @@ function App() {
     Record<string, SubstitutionTimelineEntry[]>
   >({})
   const [historySeasonFilter, setHistorySeasonFilter] = useState<number>(2026)
+  // ── Knockout bracket state ──
+  const [knockoutBracket, setKnockoutBracket] = useState<KnockoutBracket | null>(null)
+  const [knockoutBracketLoading, setKnockoutBracketLoading] = useState(false)
+  const [knockoutFormats, setKnockoutFormats] = useState<KnockoutFormatOption[]>([])
+  const [knockoutSelectedFormat, setKnockoutSelectedFormat] = useState('')
+  const [knockoutSeedingMethod, setKnockoutSeedingMethod] = useState<'intelligent' | 'random'>('intelligent')
+  const [knockoutCreating, setKnockoutCreating] = useState(false)
+  const [knockoutCategoryId, setKnockoutCategoryId] = useState('')
+  const [knockoutResultDraft, setKnockoutResultDraft] = useState<Record<string, { homeGoals: string; awayGoals: string; penaltyHome: string; penaltyAway: string; winnerId: string; leg: 1 | 2 }>>({})
+  const [knockoutSavingMatchId, setKnockoutSavingMatchId] = useState('')
+  const [knockoutMessage, setKnockoutMessage] = useState('')
   const [activeHistoryTab, setActiveHistoryTab] = useState<HistoryTabKey>('standings')
   const [scorersSearchTerm, setScorersSearchTerm] = useState('')
   const [assistsSearchTerm, setAssistsSearchTerm] = useState('')
@@ -476,11 +491,17 @@ function App() {
   const [redsPage, setRedsPage] = useState(1)
   const [homePenaltiesDraft, setHomePenaltiesDraft] = useState('')
   const [awayPenaltiesDraft, setAwayPenaltiesDraft] = useState('')
-  const [savingSettings, setSavingSettings] = useState(false)
   const [finalsLeftSeedTeamIds, setFinalsLeftSeedTeamIds] = useState<string[]>([])
   const [finalsRightSeedTeamIds, setFinalsRightSeedTeamIds] = useState<string[]>([])
   const [draggingFinalSeedTeamId, setDraggingFinalSeedTeamId] = useState('')
   const [showMvpModal, setShowMvpModal] = useState(false)
+  const [showWalkoverModal, setShowWalkoverModal] = useState(false)
+  const [walkoverWinner, setWalkoverWinner] = useState<'home' | 'away'>('home')
+  const [walkoverGoalDiffDraft, setWalkoverGoalDiffDraft] = useState(3)
+  const [walkoverSaving, setWalkoverSaving] = useState(false)
+  const [showPenaltyModal, setShowPenaltyModal] = useState(false)
+  const [startingPenalty, setStartingPenalty] = useState(false)
+  const [registeringKick, setRegisteringKick] = useState(false)
   const [showDeleteEventModal, setShowDeleteEventModal] = useState(false)
   const [deletingEventId, setDeletingEventId] = useState('')
   const [confirmDeleteEventId, setConfirmDeleteEventId] = useState('')
@@ -509,6 +530,7 @@ function App() {
     finalStageFinalTwoLegged: false,
     doubleRoundRobin: false,
     regularSeasonRounds: 9,
+    seriesCount: 5,
   })
 
   useEffect(() => {
@@ -601,8 +623,18 @@ function App() {
   }, [loadLeagues])
 
   useEffect(() => {
+    if (adminView !== 'partidos' || !authUser) {
+      adminSocketRef.current?.disconnect()
+      adminSocketRef.current = null
+      return
+    }
+
     const socket = io(apiBaseUrl, {
       transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 2,
+      reconnectionDelay: 1500,
+      timeout: 5000,
     })
 
     adminSocketRef.current = socket
@@ -624,7 +656,7 @@ function App() {
       adminSocketRef.current = null
       socket.disconnect()
     }
-  }, [])
+  }, [adminView, authUser])
 
   useEffect(() => {
     apiService.onSessionExpired(() => {
@@ -779,6 +811,7 @@ function App() {
             ?? false,
           doubleRoundRobin: selectedCategoryRules.doubleRoundRobin ?? false,
           regularSeasonRounds: selectedCategoryRules.regularSeasonRounds ?? 9,
+          seriesCount: (selectedCategoryRules.seriesCount ?? 5) as 3 | 5,
         }
       })
     })
@@ -793,10 +826,22 @@ function App() {
 
   useEffect(() => {
     let disposed = false
+    // Render free tier can cold-start slowly; use a larger timeout for admin matches load.
+    const REQUEST_TIMEOUT_MS = 70000
+
+    const withTimeout = async <T,>(promise: Promise<{ ok: boolean; data?: T; message?: string }>, timeoutMs = REQUEST_TIMEOUT_MS) => {
+      return await Promise.race([
+        promise,
+        new Promise<{ ok: false; message: string }>((resolve) => {
+          setTimeout(() => resolve({ ok: false, message: 'timeout' }), timeoutMs)
+        }),
+      ])
+    }
 
     const run = async () => {
       if (!selectedLeague || !activeMatchCategoryId) {
         if (!disposed) {
+          setMatchesLoading(false)
           setLeagueTeams([])
           setLeagueFixture(null)
           setFixtureScheduleEntries([])
@@ -808,57 +853,92 @@ function App() {
         return
       }
 
-      const [teamsResponse, fixtureResponse, scheduleResponse, playedResponse, rankingResponse] = await Promise.all([
-        apiService.getLeagueTeams(selectedLeague.id, activeMatchCategoryId),
-        apiService.getLeagueFixture(selectedLeague.id, activeMatchCategoryId),
-        apiService.getFixtureSchedule(selectedLeague.id, activeMatchCategoryId),
-        apiService.getPlayedMatches(selectedLeague.id, activeMatchCategoryId),
-        apiService.getRoundAwardsRanking(selectedLeague.id, activeMatchCategoryId),
-      ])
-
-      if (disposed) return
-
-      if (teamsResponse.ok) {
-        setLeagueTeams(teamsResponse.data)
+      if (!disposed) {
+        setMatchesLoading(true)
       }
 
-      if (fixtureResponse.ok) {
-        setLeagueFixture(fixtureResponse.data)
+      let corePending = 3 // teams + fixture + played
+      const markCoreDone = () => {
+        corePending -= 1
+        if (!disposed && corePending <= 0) {
+          setMatchesLoading(false)
+        }
       }
 
-      if (scheduleResponse?.ok) {
-        const scheduleMap: Record<string, string> = {}
-        const venueMap: Record<string, string> = {}
-        scheduleResponse.data.forEach((entry: { matchId: string; scheduledAt: string; venue?: string }) => {
-          scheduleMap[entry.matchId] = entry.scheduledAt
-          if (entry.venue) {
-            venueMap[entry.matchId] = entry.venue
+      // Teams
+      void withTimeout(apiService.getLeagueTeams(selectedLeague.id, activeMatchCategoryId))
+        .then((teamsResponse) => {
+          if (disposed) return
+          if (teamsResponse.ok && teamsResponse.data) {
+            setLeagueTeams(teamsResponse.data)
           }
         })
-        setFixtureScheduleEntries(scheduleResponse.data)
-        setFixtureDatesMap(scheduleMap)
-        setFixtureVenuesMap(venueMap)
-      } else {
-        setFixtureScheduleEntries([])
-        setFixtureDatesMap({})
-        setFixtureVenuesMap({})
-      }
-
-      if (playedResponse?.ok) {
-        const nextPlayedMap: Record<string, PlayedMatchRecord> = {}
-        playedResponse.data.forEach((record: PlayedMatchRecord) => {
-          nextPlayedMap[record.matchId] = record
+        .catch(() => {
+          // Keep previous state on transient network errors/timeouts.
         })
-        setPlayedMatchesMap(nextPlayedMap)
-      } else {
-        setPlayedMatchesMap({})
-      }
+        .finally(markCoreDone)
 
-      if (rankingResponse?.ok) {
-        setRoundAwardsRanking(rankingResponse.data)
-      } else {
-        setRoundAwardsRanking([])
-      }
+      // Fixture (base de pendientes/jugados)
+      void withTimeout(apiService.getLeagueFixture(selectedLeague.id, activeMatchCategoryId))
+        .then((fixtureResponse) => {
+          if (disposed) return
+          if (fixtureResponse.ok && fixtureResponse.data) {
+            setLeagueFixture(fixtureResponse.data)
+          }
+        })
+        .catch(() => {
+          // Keep previous state on transient network errors/timeouts.
+        })
+        .finally(markCoreDone)
+
+      // Jugados
+      void withTimeout(apiService.getPlayedMatches(selectedLeague.id, activeMatchCategoryId))
+        .then((playedResponse) => {
+          if (disposed) return
+          if (playedResponse.ok && playedResponse.data) {
+            const nextPlayedMap: Record<string, PlayedMatchRecord> = {}
+            playedResponse.data.forEach((record: PlayedMatchRecord) => {
+              nextPlayedMap[record.matchId] = record
+            })
+            setPlayedMatchesMap(nextPlayedMap)
+          }
+        })
+        .catch(() => {
+          // Keep previous state on transient network errors/timeouts.
+        })
+        .finally(markCoreDone)
+
+      // Agenda (secundario para fecha/estadio)
+      void withTimeout(apiService.getFixtureSchedule(selectedLeague.id, activeMatchCategoryId))
+        .then((scheduleResponse) => {
+          if (disposed) return
+          if (scheduleResponse?.ok && scheduleResponse.data) {
+            const scheduleMap: Record<string, string> = {}
+            const venueMap: Record<string, string> = {}
+            scheduleResponse.data.forEach((entry: { matchId: string; scheduledAt: string; venue?: string }) => {
+              scheduleMap[entry.matchId] = entry.scheduledAt
+              if (entry.venue) {
+                venueMap[entry.matchId] = entry.venue
+              }
+            })
+            setFixtureScheduleEntries(scheduleResponse.data)
+            setFixtureDatesMap(scheduleMap)
+            setFixtureVenuesMap(venueMap)
+          }
+        })
+        .catch(() => {
+          // Keep previous state on transient network errors/timeouts.
+        })
+
+      // Ranking (no bloquea partidos)
+      void withTimeout(apiService.getRoundAwardsRanking(selectedLeague.id, activeMatchCategoryId)).then((rankingResponse) => {
+        if (disposed) return
+        if (rankingResponse?.ok && rankingResponse.data) {
+          setRoundAwardsRanking(rankingResponse.data)
+        }
+      }).catch(() => {
+        // Keep previous state on transient network errors/timeouts.
+      })
     }
 
     void run()
@@ -866,7 +946,7 @@ function App() {
     return () => {
       disposed = true
     }
-  }, [activeMatchCategoryId, selectedLeague])
+  }, [activeMatchCategoryId, selectedLeague, adminView])
 
   const selectedTeam = useMemo(() => {
     if (!liveMatch) return null
@@ -1742,6 +1822,11 @@ function App() {
     }
 
     if (action === 'finish' && !canFinalizeMatch) {
+      // Partido sin iniciar: ofrecer W.O.
+      if (!liveIsFinished && !liveHasStarted) {
+        setShowWalkoverModal(true)
+        return
+      }
       applyActionFeedback(false, '', 'Debes iniciar el partido para finalizar')
       return
     }
@@ -1812,120 +1897,85 @@ function App() {
     }
   }
 
-  const saveSettings = async () => {
-    if (savingSettings) return
-
-    if (!selectedLeague || !activeMatchCategoryId) {
-      applyActionFeedback(false, '', 'Selecciona liga y categoría para guardar configuración')
-      return
-    }
-
-    setSavingSettings(true)
-
+  const finalizeMatchAsWalkover = async () => {
+    if (!liveMatch || !selectedPendingMatch || !selectedLeague || !activeMatchCategoryId) return
+    if (walkoverSaving) return
+    setWalkoverSaving(true)
     try {
-      const sanitizedRules = {
-        playersOnField: clampInt(settingsDraft.playersOnField, 5, 11, 11),
-        matchMinutes: clampInt(settingsDraft.matchMinutes, 20, 120, 90),
-        breakMinutes: clampInt(settingsDraft.breakMinutes, 0, 30, 15),
-        allowDraws: competitionRulesDraft.allowDraws,
-        pointsWin: clampInt(competitionRulesDraft.pointsWin, 0, 10, 3),
-        pointsDraw: clampInt(competitionRulesDraft.pointsDraw, 0, 10, 1),
-        pointsLoss: clampInt(competitionRulesDraft.pointsLoss, 0, 10, 0),
-        courtsCount: clampInt(competitionRulesDraft.courtsCount, 1, 20, 1),
-        maxRegisteredPlayers: clampInt(competitionRulesDraft.maxRegisteredPlayers, 5, 60, 25),
-        resolveDrawByPenalties: competitionRulesDraft.resolveDrawByPenalties,
-        playoffQualifiedTeams: clampInt(competitionRulesDraft.playoffQualifiedTeams, 2, 32, 8),
-        playoffHomeAway: competitionRulesDraft.finalStageFinalTwoLegged,
-        finalStageRoundOf16Enabled: competitionRulesDraft.finalStageRoundOf16Enabled,
-        finalStageRoundOf8Enabled: competitionRulesDraft.finalStageRoundOf8Enabled,
-        finalStageQuarterFinalsEnabled: competitionRulesDraft.finalStageQuarterFinalsEnabled,
-        finalStageSemiFinalsEnabled: competitionRulesDraft.finalStageSemiFinalsEnabled,
-        finalStageFinalEnabled: competitionRulesDraft.finalStageFinalEnabled,
-        finalStageRoundOf16TwoLegged: competitionRulesDraft.finalStageRoundOf16TwoLegged,
-        finalStageRoundOf8TwoLegged: competitionRulesDraft.finalStageRoundOf8TwoLegged,
-        finalStageQuarterFinalsTwoLegged: competitionRulesDraft.finalStageQuarterFinalsTwoLegged,
-        finalStageSemiFinalsTwoLegged: competitionRulesDraft.finalStageSemiFinalsTwoLegged,
-        finalStageFinalTwoLegged: competitionRulesDraft.finalStageFinalTwoLegged,
-        finalStageTwoLegged: competitionRulesDraft.finalStageFinalTwoLegged,
-        doubleRoundRobin: competitionRulesDraft.doubleRoundRobin,
-        regularSeasonRounds: clampInt(competitionRulesDraft.regularSeasonRounds, 1, 60, 9),
+      const goalDiff = Math.max(0, walkoverGoalDiffDraft)
+      const homeGoals = walkoverWinner === 'home' ? goalDiff : 0
+      const awayGoals = walkoverWinner === 'away' ? goalDiff : 0
+
+      const record: PlayedMatchRecord = {
+        matchId: selectedPendingMatch.id,
+        leagueId: selectedLeague.id,
+        categoryId: activeMatchCategoryId,
+        round: selectedPendingMatch.round,
+        finalMinute: 0,
+        homeTeamName: liveMatch.homeTeam.name,
+        awayTeamName: liveMatch.awayTeam.name,
+        homeStats: { goals: homeGoals, shots: 0, yellows: 0, reds: 0, assists: 0 },
+        awayStats: { goals: awayGoals, shots: 0, yellows: 0, reds: 0, assists: 0 },
+        playerOfMatchId: '',
+        playerOfMatchName: 'N/A',
+        homeLineup: { starters: [], substitutes: [], formationKey: '' },
+        awayLineup: { starters: [], substitutes: [], formationKey: '' },
+        players: [],
+        goals: [],
+        events: [],
+        highlightVideos: [],
+        walkover: true,
+        walkoverWinner,
+        playedAt: new Date().toISOString(),
       }
 
-      const rulesResponse = await apiService.updateCategoryRules(selectedLeague.id, activeMatchCategoryId, sanitizedRules)
-      if (!rulesResponse.ok) {
-        applyActionFeedback(false, '', rulesResponse.message || 'No se pudo guardar configuración')
+      const response = await apiService.savePlayedMatch(selectedLeague.id, record)
+      if (!response.ok) {
+        applyActionFeedback(false, '', response.message)
         return
       }
 
-      setLeagues((current) =>
-        current.map((league) => (league.id === rulesResponse.data.id ? rulesResponse.data : league)),
-      )
-
-      const refreshedCategoryRules = rulesResponse.data.categories.find((item) => item.id === activeMatchCategoryId)?.rules
-      if (refreshedCategoryRules) {
-        setSettingsDraft((current) => ({
-          ...current,
-          playersOnField: refreshedCategoryRules.playersOnField ?? 11,
-          matchMinutes: refreshedCategoryRules.matchMinutes ?? 90,
-          breakMinutes: refreshedCategoryRules.breakMinutes ?? 15,
-        }))
-
-        setCompetitionRulesDraft((current) => {
-          const baseFinalTwoLegged =
-            refreshedCategoryRules.finalStageFinalTwoLegged
-            ?? refreshedCategoryRules.finalStageTwoLegged
-            ?? refreshedCategoryRules.playoffHomeAway
-            ?? false
-
-          return {
-            ...current,
-            allowDraws: refreshedCategoryRules.allowDraws ?? true,
-            pointsWin: refreshedCategoryRules.pointsWin ?? 3,
-            pointsDraw: refreshedCategoryRules.pointsDraw ?? 1,
-            pointsLoss: refreshedCategoryRules.pointsLoss ?? 0,
-            courtsCount: refreshedCategoryRules.courtsCount ?? 1,
-            maxRegisteredPlayers: refreshedCategoryRules.maxRegisteredPlayers ?? 25,
-            resolveDrawByPenalties: refreshedCategoryRules.resolveDrawByPenalties ?? false,
-            playoffQualifiedTeams: refreshedCategoryRules.playoffQualifiedTeams ?? 8,
-            finalStageRoundOf16Enabled:
-              refreshedCategoryRules.finalStageRoundOf16Enabled ?? false,
-            finalStageRoundOf8Enabled: refreshedCategoryRules.finalStageRoundOf8Enabled ?? false,
-            finalStageQuarterFinalsEnabled:
-              refreshedCategoryRules.finalStageQuarterFinalsEnabled ?? true,
-            finalStageSemiFinalsEnabled: refreshedCategoryRules.finalStageSemiFinalsEnabled ?? true,
-            finalStageFinalEnabled: refreshedCategoryRules.finalStageFinalEnabled ?? true,
-            finalStageTwoLegged: baseFinalTwoLegged,
-            finalStageRoundOf16TwoLegged:
-              refreshedCategoryRules.finalStageRoundOf16TwoLegged ?? false,
-            finalStageRoundOf8TwoLegged:
-              refreshedCategoryRules.finalStageRoundOf8TwoLegged ?? false,
-            finalStageQuarterFinalsTwoLegged:
-              refreshedCategoryRules.finalStageQuarterFinalsTwoLegged ?? false,
-            finalStageSemiFinalsTwoLegged:
-              refreshedCategoryRules.finalStageSemiFinalsTwoLegged ?? false,
-            finalStageFinalTwoLegged:
-              refreshedCategoryRules.finalStageFinalTwoLegged
-              ?? refreshedCategoryRules.finalStageTwoLegged
-              ?? refreshedCategoryRules.playoffHomeAway
-              ?? false,
-            doubleRoundRobin: refreshedCategoryRules.doubleRoundRobin ?? false,
-            regularSeasonRounds: refreshedCategoryRules.regularSeasonRounds ?? 9,
-          }
-        })
-      }
-
-      if (liveMatch) {
-        const liveResponse = await apiService.updateLiveSettings(liveMatch?.id ?? '', settingsDraft)
-        if (!liveResponse.ok) {
-          applyActionFeedback(false, '', liveResponse.message || 'No se pudo actualizar settings live')
-          return
-        }
-      }
-
-      await loadLeagues()
-      applyActionFeedback(true, 'Reglas parametrizadas guardadas', '')
+      setPlayedMatchesMap((current) => ({
+        ...current,
+        [selectedPendingMatch.id]: response.data as PlayedMatchRecord,
+      }))
+      setSelectedPlayedMatchId(selectedPendingMatch.id)
+      setSelectedPendingMatchId('')
+      setShowWalkoverModal(false)
+      applyActionFeedback(true, `W.O. registrado — gana ${walkoverWinner === 'home' ? liveMatch.homeTeam.name : liveMatch.awayTeam.name}`, '')
     } finally {
-      setSavingSettings(false)
+      setWalkoverSaving(false)
+    }
+  }
+
+  const handleStartPenalty = async () => {
+    if (!liveMatch || startingPenalty) return
+    setStartingPenalty(true)
+    try {
+      const res = await apiService.startPenaltyShootout(liveMatch.id)
+      if (!res.ok) {
+        applyActionFeedback(false, '', res.message)
+        return
+      }
+      setLiveMatch(res.data)
+      setShowPenaltyModal(true)
+    } finally {
+      setStartingPenalty(false)
+    }
+  }
+
+  const handleRegisterKick = async (team: 'home' | 'away', result: 'goal' | 'miss') => {
+    if (!liveMatch || registeringKick) return
+    setRegisteringKick(true)
+    try {
+      const res = await apiService.registerPenaltyKick(liveMatch.id, team, result)
+      if (!res.ok) {
+        applyActionFeedback(false, '', res.message)
+        return
+      }
+      setLiveMatch(res.data)
+    } finally {
+      setRegisteringKick(false)
     }
   }
 
@@ -2425,6 +2475,10 @@ function App() {
     [competitionRulesDraft.regularSeasonRounds, matchesTab, playedMatches],
   )
 
+  const hasVisibleMatchesData = pendingMatchesScoped.length > 0 || playedMatchesScoped.length > 0
+  const showPrimaryMatchesLoading = matchesLoading && !hasVisibleMatchesData
+  const showBackgroundMatchesRefresh = matchesLoading && hasVisibleMatchesData
+
   const pendingRoundsScoped = useMemo(() => {
     return Array.from(new Set(pendingMatchesScoped.map((match) => match.round))).sort((a, b) => a - b)
   }, [pendingMatchesScoped])
@@ -2441,7 +2495,11 @@ function App() {
 
   const selectedPlayedMatchScoped = playedMatchesScoped.find((match) => match.id === selectedPlayedMatchId) ?? null
 
-  const selectedPlayedStatsScoped = selectedPlayedMatchScoped ? playedMatchesMap[selectedPlayedMatchScoped.id] ?? null : null
+  const selectedPlayedStatsScoped = selectedPlayedMatchScoped
+    ? (playedMatchesMap[selectedPlayedMatchScoped.id]
+      ?? Object.values(playedMatchesMap).find((record) => record.matchId === selectedPlayedMatchScoped.id)
+      ?? null)
+    : null
 
   const selectedPlayedHomeTeamRoster = selectedPlayedMatchScoped
     ? teamsById.get(selectedPlayedMatchScoped.homeTeamId) ?? null
@@ -2501,7 +2559,7 @@ function App() {
     }
 
     selectedPlayedStatsScoped.events.forEach((event) => {
-      const playerId = resolvePlayerId(event.teamName, event.playerName)
+      const playerId = event.playerId ?? resolvePlayerId(event.teamName, event.playerName)
       if (!playerId) return
 
       const current = map.get(playerId) ?? {
@@ -2525,8 +2583,8 @@ function App() {
 
       map.set(playerId, current)
 
-      if (event.type === 'substitution' && event.substitutionInPlayerName) {
-        const inPlayerId = resolvePlayerId(event.teamName, event.substitutionInPlayerName)
+      if (event.type === 'substitution') {
+        const inPlayerId = event.substitutionInPlayerId ?? (event.substitutionInPlayerName ? resolvePlayerId(event.teamName, event.substitutionInPlayerName) : '')
         if (!inPlayerId) return
 
         const inCurrent = map.get(inPlayerId) ?? {
@@ -3040,6 +3098,7 @@ function App() {
       return
     }
 
+    setUploadingHighlightVideo(true)
     try {
       const response = await apiService.uploadPlayedMatchVideo(selectedLeague.id, matchId, {
         categoryId: activeMatchCategoryId,
@@ -3057,9 +3116,14 @@ function App() {
         [response.data.matchId]: response.data as PlayedMatchRecord,
       }))
 
+      setPendingHighlightFile(null)
+      setPendingHighlightMatchId('')
+
       applyActionFeedback(true, 'Video de mejores jugadas cargado en Mongo', '')
     } catch {
       applyActionFeedback(false, '', 'No se pudo cargar el video')
+    } finally {
+      setUploadingHighlightVideo(false)
     }
   }
 
@@ -3707,23 +3771,30 @@ function App() {
     let penaltyShootout: PlayedMatchRecord['penaltyShootout'] | undefined
 
     if (isDrawAfterRegularTime && competitionRulesDraft.resolveDrawByPenalties && isFinalStageMatch) {
-      const homePenalties = Number(homePenaltiesDraft)
-      const awayPenalties = Number(awayPenaltiesDraft)
-      if (!Number.isFinite(homePenalties) || !Number.isFinite(awayPenalties)) {
-        applyActionFeedback(false, '', 'Ingresa penales válidos para local y visitante')
-        return false
-      }
-      if (homePenalties < 0 || awayPenalties < 0) {
-        applyActionFeedback(false, '', 'Los penales no pueden ser negativos')
-        return false
-      }
-      if (homePenalties === awayPenalties) {
-        applyActionFeedback(false, '', 'En penales debe existir un ganador')
-        return false
-      }
-      penaltyShootout = {
-        home: homePenalties,
-        away: awayPenalties,
+      // Preferir tanda real del backend (registrada kick a kick); fallback al draft manual
+      if (liveMatch.penaltyShootout) {
+        const { homeScore, awayScore } = liveMatch.penaltyShootout
+        if (homeScore === awayScore) {
+          applyActionFeedback(false, '', 'La tanda de penales no tiene un ganador todavía')
+          return false
+        }
+        penaltyShootout = { home: homeScore, away: awayScore }
+      } else {
+        const homePenalties = Number(homePenaltiesDraft)
+        const awayPenalties = Number(awayPenaltiesDraft)
+        if (!Number.isFinite(homePenalties) || !Number.isFinite(awayPenalties)) {
+          applyActionFeedback(false, '', 'Ingresa penales válidos para local y visitante')
+          return false
+        }
+        if (homePenalties < 0 || awayPenalties < 0) {
+          applyActionFeedback(false, '', 'Los penales no pueden ser negativos')
+          return false
+        }
+        if (homePenalties === awayPenalties) {
+          applyActionFeedback(false, '', 'En penales debe existir un ganador')
+          return false
+        }
+        penaltyShootout = { home: homePenalties, away: awayPenalties }
       }
     }
 
@@ -3835,7 +3906,9 @@ function App() {
           type: event.type,
           teamName: team.name,
           playerName: actorLabel,
+          ...(event.playerId ? { playerId: event.playerId } : {}),
           ...(incomingPlayerName ? { substitutionInPlayerName: incomingPlayerName } : {}),
+          ...(event.substitutionInPlayerId ? { substitutionInPlayerId: event.substitutionInPlayerId } : {}),
           ...(event.staffRole ? { staffRole: event.staffRole } : {}),
         }
       }),
@@ -4138,17 +4211,6 @@ function App() {
               </button>
               <button
                 type="button"
-                onClick={() => setAdminView('configuracion')}
-                className={`rounded-lg px-3 py-1.5 text-xs font-semibold md:text-sm ${
-                  adminView === 'configuracion'
-                    ? 'border border-primary-300/40 bg-primary-500/20 text-primary-100'
-                    : 'border border-white/20 bg-slate-900 text-slate-200'
-                }`}
-              >
-                Configuración
-              </button>
-              <button
-                type="button"
                 onClick={() => setAdminView('gestion')}
                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold md:text-sm ${
                   adminView === 'gestion'
@@ -4168,6 +4230,17 @@ function App() {
                 }`}
               >
                 Partidos
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminView('finales')}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold md:text-sm ${
+                  adminView === 'finales'
+                    ? 'border border-primary-300/40 bg-primary-500/20 text-primary-100'
+                    : 'border border-white/20 bg-slate-900 text-slate-200'
+                }`}
+              >
+                Fases Finales
               </button>
               <button
                 type="button"
@@ -4803,400 +4876,6 @@ function App() {
           />
         )}
 
-        {adminView === 'configuracion' && (
-          <section className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-lg font-semibold text-white">Configuración del campeonato</h3>
-              {selectedLeague && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-300">Categoría</span>
-                  <select
-                    value={matchCategoryId}
-                    onChange={(event) => {
-                      setMatchCategoryId(event.target.value)
-                      resetMatchSelection()
-                    }}
-                    className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-sm text-white"
-                  >
-                    <option value="" disabled>
-                      Selecciona categoría
-                    </option>
-                    {selectedLeague.categories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-
-            {!selectedLeague && <p className="mt-3 text-sm text-slate-300">Selecciona una liga para configurar el campeonato.</p>}
-
-            {selectedLeague && !hasExplicitMatchCategory && (
-              <div className="mt-4 rounded-xl border border-white/10 bg-slate-900/60 p-4 text-sm text-slate-300">
-                Selecciona primero una categoría para editar la configuración global del campeonato.
-              </div>
-            )}
-
-            {selectedLeague && hasExplicitMatchCategory && (
-              <div className="mt-4 rounded border border-white/10 bg-slate-900/60 p-4">
-                <p className="text-xs font-semibold text-white">Esta configuración aplica para todo el campeonato de la categoría seleccionada.</p>
-
-                <div className="mt-3 grid gap-2 md:grid-cols-3">
-                  <label className="text-xs text-slate-300">
-                    Jugadoras en cancha
-                    <input
-                      type="number"
-                      min={5}
-                      max={11}
-                      value={settingsDraft.playersOnField}
-                      onChange={(event) => setSettingsDraft((current) => ({ ...current, playersOnField: Number(event.target.value) || 5 }))}
-                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white"
-                    />
-                  </label>
-                  <label className="text-xs text-slate-300">
-                    Minutos de juego
-                    <input
-                      type="number"
-                      min={20}
-                      max={120}
-                      value={settingsDraft.matchMinutes}
-                      onChange={(event) => setSettingsDraft((current) => ({ ...current, matchMinutes: Number(event.target.value) || 20 }))}
-                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white"
-                    />
-                  </label>
-                  <label className="text-xs text-slate-300">
-                    Descanso (min)
-                    <input
-                      type="number"
-                      min={0}
-                      max={30}
-                      value={settingsDraft.breakMinutes}
-                      onChange={(event) => setSettingsDraft((current) => ({ ...current, breakMinutes: Number(event.target.value) || 0 }))}
-                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white"
-                    />
-                  </label>
-                </div>
-
-                <div className="mt-3 grid gap-2 md:grid-cols-4">
-                  <label className="text-xs text-slate-300">
-                    Puntos ganar
-                    <input
-                      type="number"
-                      min={0}
-                      max={10}
-                      value={competitionRulesDraft.pointsWin}
-                      onChange={(event) =>
-                        setCompetitionRulesDraft((current) => ({ ...current, pointsWin: Number(event.target.value) || 0 }))
-                      }
-                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white"
-                    />
-                  </label>
-                  <label className="text-xs text-slate-300">
-                    Puntos empate
-                    <input
-                      type="number"
-                      min={0}
-                      max={10}
-                      value={competitionRulesDraft.pointsDraw}
-                      onChange={(event) =>
-                        setCompetitionRulesDraft((current) => ({ ...current, pointsDraw: Number(event.target.value) || 0 }))
-                      }
-                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white"
-                    />
-                  </label>
-                  <label className="text-xs text-slate-300">
-                    Puntos perder
-                    <input
-                      type="number"
-                      min={0}
-                      max={10}
-                      value={competitionRulesDraft.pointsLoss}
-                      onChange={(event) =>
-                        setCompetitionRulesDraft((current) => ({ ...current, pointsLoss: Number(event.target.value) || 0 }))
-                      }
-                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white"
-                    />
-                  </label>
-                  <label className="text-xs text-slate-300">
-                    Clasifican a fase final
-                    <input
-                      type="number"
-                      min={2}
-                      max={32}
-                      value={competitionRulesDraft.playoffQualifiedTeams}
-                      onChange={(event) =>
-                        setCompetitionRulesDraft((current) => ({
-                          ...current,
-                          playoffQualifiedTeams: Number(event.target.value) || 2,
-                        }))
-                      }
-                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white"
-                    />
-                  </label>
-                </div>
-
-                <div className="mt-3 grid gap-2 md:grid-cols-3">
-                  <label className="text-xs text-slate-300">
-                    Fechas fase regular
-                    <input
-                      type="number"
-                      min={1}
-                      max={60}
-                      value={competitionRulesDraft.regularSeasonRounds}
-                      onChange={(event) =>
-                        setCompetitionRulesDraft((current) => ({
-                          ...current,
-                          regularSeasonRounds: Number(event.target.value) || 1,
-                        }))
-                      }
-                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white"
-                    />
-                  </label>
-
-                  <label className="text-xs text-slate-300">
-                    Número de canchas
-                    <input
-                      type="number"
-                      min={1}
-                      max={20}
-                      value={competitionRulesDraft.courtsCount}
-                      onChange={(event) =>
-                        setCompetitionRulesDraft((current) => ({
-                          ...current,
-                          courtsCount: Math.max(1, Number(event.target.value) || 1),
-                        }))
-                      }
-                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white"
-                    />
-                  </label>
-
-                  <label className="text-xs text-slate-300">
-                    Máximo jugadoras inscritas
-                    <input
-                      type="number"
-                      min={5}
-                      max={60}
-                      value={competitionRulesDraft.maxRegisteredPlayers}
-                      onChange={(event) =>
-                        setCompetitionRulesDraft((current) => ({
-                          ...current,
-                          maxRegisteredPlayers: Math.max(5, Number(event.target.value) || 5),
-                        }))
-                      }
-                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white"
-                    />
-                  </label>
-
-                  <label className="flex items-center gap-2 rounded border border-white/10 px-2 py-2 text-xs text-slate-200">
-                    <input
-                      type="checkbox"
-                      checked={competitionRulesDraft.doubleRoundRobin}
-                      onChange={(event) =>
-                        setCompetitionRulesDraft((current) => ({ ...current, doubleRoundRobin: event.target.checked }))
-                      }
-                    />
-                    Liga ida y vuelta
-                  </label>
-
-                </div>
-
-                <div className="mt-3 rounded border border-white/10 bg-slate-900/40 p-3">
-                  <p className="text-xs font-semibold text-white">Fase final (configurable durante el campeonato)</p>
-                  <div className="mt-2 grid gap-2 md:grid-cols-3">
-                    <label className="flex items-center gap-2 rounded border border-white/10 px-2 py-2 text-xs text-slate-200">
-                      <input
-                        type="checkbox"
-                        checked={competitionRulesDraft.finalStageRoundOf16Enabled}
-                        onChange={(event) =>
-                          setCompetitionRulesDraft((current) => ({ ...current, finalStageRoundOf16Enabled: event.target.checked }))
-                        }
-                      />
-                      16avos
-                    </label>
-                    <label className="flex items-center gap-2 rounded border border-white/10 px-2 py-2 text-xs text-slate-200">
-                      <input
-                        type="checkbox"
-                        checked={competitionRulesDraft.finalStageRoundOf8Enabled}
-                        onChange={(event) =>
-                          setCompetitionRulesDraft((current) => ({ ...current, finalStageRoundOf8Enabled: event.target.checked }))
-                        }
-                      />
-                      8vos
-                    </label>
-                    <label className="flex items-center gap-2 rounded border border-white/10 px-2 py-2 text-xs text-slate-200">
-                      <input
-                        type="checkbox"
-                        checked={competitionRulesDraft.finalStageQuarterFinalsEnabled}
-                        onChange={(event) =>
-                          setCompetitionRulesDraft((current) => ({ ...current, finalStageQuarterFinalsEnabled: event.target.checked }))
-                        }
-                      />
-                      4tos
-                    </label>
-                    <label className="flex items-center gap-2 rounded border border-white/10 px-2 py-2 text-xs text-slate-200">
-                      <input
-                        type="checkbox"
-                        checked={competitionRulesDraft.finalStageSemiFinalsEnabled}
-                        onChange={(event) =>
-                          setCompetitionRulesDraft((current) => ({ ...current, finalStageSemiFinalsEnabled: event.target.checked }))
-                        }
-                      />
-                      Semifinales
-                    </label>
-                    <label className="flex items-center gap-2 rounded border border-white/10 px-2 py-2 text-xs text-slate-200">
-                      <input
-                        type="checkbox"
-                        checked={competitionRulesDraft.finalStageFinalEnabled}
-                        onChange={(event) =>
-                          setCompetitionRulesDraft((current) => ({ ...current, finalStageFinalEnabled: event.target.checked }))
-                        }
-                      />
-                      Final
-                    </label>
-                  </div>
-
-                  <div className="mt-3 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-                    <label className="text-xs text-slate-300">
-                      Modalidad 16avos
-                      <select
-                        value={competitionRulesDraft.finalStageRoundOf16TwoLegged ? 'home-away' : 'single'}
-                        disabled={!competitionRulesDraft.finalStageRoundOf16Enabled}
-                        onChange={(event) =>
-                          setCompetitionRulesDraft((current) => ({
-                            ...current,
-                            finalStageRoundOf16TwoLegged: event.target.value === 'home-away',
-                          }))
-                        }
-                        className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white disabled:opacity-50"
-                      >
-                        <option value="single">Única</option>
-                        <option value="home-away">Ida y vuelta</option>
-                      </select>
-                    </label>
-
-                    <label className="text-xs text-slate-300">
-                      Modalidad 8vos
-                      <select
-                        value={competitionRulesDraft.finalStageRoundOf8TwoLegged ? 'home-away' : 'single'}
-                        disabled={!competitionRulesDraft.finalStageRoundOf8Enabled}
-                        onChange={(event) =>
-                          setCompetitionRulesDraft((current) => ({
-                            ...current,
-                            finalStageRoundOf8TwoLegged: event.target.value === 'home-away',
-                          }))
-                        }
-                        className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white disabled:opacity-50"
-                      >
-                        <option value="single">Única</option>
-                        <option value="home-away">Ida y vuelta</option>
-                      </select>
-                    </label>
-
-                    <label className="text-xs text-slate-300">
-                      Modalidad 4tos
-                      <select
-                        value={competitionRulesDraft.finalStageQuarterFinalsTwoLegged ? 'home-away' : 'single'}
-                        disabled={!competitionRulesDraft.finalStageQuarterFinalsEnabled}
-                        onChange={(event) =>
-                          setCompetitionRulesDraft((current) => ({
-                            ...current,
-                            finalStageQuarterFinalsTwoLegged: event.target.value === 'home-away',
-                          }))
-                        }
-                        className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white disabled:opacity-50"
-                      >
-                        <option value="single">Única</option>
-                        <option value="home-away">Ida y vuelta</option>
-                      </select>
-                    </label>
-
-                    <label className="text-xs text-slate-300">
-                      Modalidad semifinales
-                      <select
-                        value={competitionRulesDraft.finalStageSemiFinalsTwoLegged ? 'home-away' : 'single'}
-                        disabled={!competitionRulesDraft.finalStageSemiFinalsEnabled}
-                        onChange={(event) =>
-                          setCompetitionRulesDraft((current) => ({
-                            ...current,
-                            finalStageSemiFinalsTwoLegged: event.target.value === 'home-away',
-                          }))
-                        }
-                        className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white disabled:opacity-50"
-                      >
-                        <option value="single">Única</option>
-                        <option value="home-away">Ida y vuelta</option>
-                      </select>
-                    </label>
-
-                    <label className="text-xs text-slate-300">
-                      Modalidad final
-                      <select
-                        value={competitionRulesDraft.finalStageFinalTwoLegged ? 'home-away' : 'single'}
-                        disabled={!competitionRulesDraft.finalStageFinalEnabled}
-                        onChange={(event) =>
-                          setCompetitionRulesDraft((current) => ({
-                            ...current,
-                            finalStageFinalTwoLegged: event.target.value === 'home-away',
-                          }))
-                        }
-                        className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white disabled:opacity-50"
-                      >
-                        <option value="single">Única</option>
-                        <option value="home-away">Ida y vuelta</option>
-                      </select>
-                    </label>
-                  </div>
-
-                  <p className="mt-2 text-[11px] text-slate-400">
-                    Los fixtures de fase final (fecha/cancha) se editan en la pestaña Partidos y pueden modificarse durante el campeonato.
-                  </p>
-                </div>
-
-                <div className="mt-2 grid gap-2 md:grid-cols-2">
-                  <label className="flex items-center gap-2 rounded border border-white/10 px-2 py-2 text-xs text-slate-200">
-                    <input
-                      type="checkbox"
-                      checked={competitionRulesDraft.allowDraws}
-                      onChange={(event) =>
-                        setCompetitionRulesDraft((current) => ({ ...current, allowDraws: event.target.checked }))
-                      }
-                    />
-                    Permitir empate en tiempo regular
-                  </label>
-                  <label className="flex items-center gap-2 rounded border border-white/10 px-2 py-2 text-xs text-slate-200">
-                    <input
-                      type="checkbox"
-                      checked={competitionRulesDraft.resolveDrawByPenalties}
-                      onChange={(event) =>
-                        setCompetitionRulesDraft((current) => ({
-                          ...current,
-                          resolveDrawByPenalties: event.target.checked,
-                        }))
-                      }
-                    />
-                    Resolver empate con penales en fase final
-                  </label>
-                </div>
-
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={saveSettings}
-                    disabled={savingSettings}
-                    className="rounded-lg border border-primary-300/50 bg-primary-500/20 px-4 py-2 text-sm font-semibold text-primary-100 hover:bg-primary-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {savingSettings ? 'Guardando configuración...' : 'Modificar configuración del campeonato'}
-                  </button>
-                </div>
-
-                {adminMessage && <p className="mt-3 text-sm text-primary-200">{adminMessage}</p>}
-              </div>
-            )}
-          </section>
-        )}
-
         {adminView === 'auditoria' && authUser.role === 'super_admin' && (
           <section className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
             <h3 className="text-lg font-semibold text-white">Auditoría de accesos</h3>
@@ -5293,6 +4972,20 @@ function App() {
 
             {selectedLeague && hasExplicitMatchCategory && (
               <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                {showPrimaryMatchesLoading && (
+                  <div className="rounded-xl border border-primary-300/30 bg-primary-500/10 p-3 lg:col-span-2">
+                    <p className="text-sm font-semibold text-primary-100">Cargando partidos...</p>
+                    <p className="mt-1 text-xs text-slate-300">Estamos consultando fixture, programación y jugados.</p>
+                  </div>
+                )}
+                {showBackgroundMatchesRefresh && (
+                  <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/40 px-3 py-2 lg:col-span-2">
+                    <span className="h-2 w-2 rounded-full bg-primary-300 animate-pulse" />
+                    <p className="text-xs text-slate-300">
+                      Actualizando partidos y programación sin interrumpir la información ya cargada.
+                    </p>
+                  </div>
+                )}
                 {matchesTab === 'finales' && (
                   <div className="rounded-xl border border-primary-300/30 bg-primary-500/10 p-4 lg:col-span-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -5725,7 +5418,7 @@ function App() {
                           </div>
 
                           <div className="relative h-[320px] sm:h-[400px]">
-                            <div className="absolute inset-x-2 top-4 bottom-[54%] flex flex-col justify-evenly overflow-hidden">
+                            <div className="absolute inset-x-2 top-2 bottom-[56%] flex flex-col justify-evenly overflow-hidden">
                               {selectedPlayedAwayVisualLines.map((line, lineIndex) => (
                                 <div key={`history-away-line-${lineIndex}`} className="px-1">
                                   <div className="grid items-start gap-2" style={{ gridTemplateColumns: `repeat(${line.length}, minmax(0, 1fr))` }}>
@@ -5762,7 +5455,7 @@ function App() {
                               ))}
                             </div>
 
-                            <div className="absolute inset-x-2 top-[54%] bottom-4 flex flex-col justify-evenly overflow-hidden">
+                            <div className="absolute inset-x-2 top-[56%] bottom-4 flex flex-col justify-evenly overflow-hidden">
                               {selectedPlayedHomeVisualLines.map((line, lineIndex) => (
                                 <div key={`history-home-line-${lineIndex}`} className="px-1">
                                   <div className="grid items-start gap-2" style={{ gridTemplateColumns: `repeat(${line.length}, minmax(0, 1fr))` }}>
@@ -5874,11 +5567,37 @@ function App() {
                             onChange={(event) => {
                               const file = event.target.files?.[0]
                               if (!file || !selectedPlayedStatsScoped) return
-                              void addHighlightVideo(selectedPlayedStatsScoped.matchId, file)
+                              setPendingHighlightFile(file)
+                              setPendingHighlightMatchId(selectedPlayedStatsScoped.matchId)
                               event.currentTarget.value = ''
                             }}
                           />
                         </label>
+
+                        {pendingHighlightFile && selectedPlayedStatsScoped && pendingHighlightMatchId === selectedPlayedStatsScoped.matchId && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                            <span className="text-slate-300">Archivo listo: {pendingHighlightFile.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => void addHighlightVideo(selectedPlayedStatsScoped.matchId, pendingHighlightFile)}
+                              disabled={uploadingHighlightVideo}
+                              className="rounded border border-emerald-300/40 bg-emerald-500/20 px-2 py-1 font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {uploadingHighlightVideo ? 'Subiendo...' : 'Subir ahora'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPendingHighlightFile(null)
+                                setPendingHighlightMatchId('')
+                              }}
+                              disabled={uploadingHighlightVideo}
+                              className="rounded border border-white/20 bg-slate-800 px-2 py-1 font-semibold text-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        )}
 
                         <div className="mt-2 grid gap-2 md:grid-cols-2">
                           {selectedPlayedStatsScoped.highlightVideos.map((video) => (
@@ -5988,14 +5707,41 @@ function App() {
                 <button
                   type="button"
                   onClick={() => setTimerAction('finish')}
-                  disabled={!canFinalizeMatch}
+                  disabled={liveIsFinished}
                   className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Finalizar
                 </button>
               </div>
 
-              {!liveHasStarted && !liveIsFinished && (
+              {/* Tanda de penales */}
+              {liveMatch.phase === 'penalty_shootout' && (
+                <button
+                  type="button"
+                  onClick={() => setShowPenaltyModal(true)}
+                  className="mt-2 w-full rounded-lg border border-violet-400/40 bg-violet-600/20 px-4 py-2 text-sm font-semibold text-violet-200 hover:bg-violet-600/30"
+                >
+                  🥅 Ver tanda de penales ({liveMatch.penaltyShootout?.homeScore ?? 0}–{liveMatch.penaltyShootout?.awayScore ?? 0})
+                </button>
+              )}
+              {liveMatch.phase !== 'penalty_shootout' &&
+                !liveIsFinished &&
+                liveHasStarted &&
+                !liveMatch.timer.running &&
+                liveMatch.homeTeam.stats.goals === liveMatch.awayTeam.stats.goals &&
+                competitionRulesDraft.resolveDrawByPenalties &&
+                selectedPendingMatch &&
+                selectedPendingMatch.round > competitionRulesDraft.regularSeasonRounds && (
+                <button
+                  type="button"
+                  onClick={() => void handleStartPenalty()}
+                  disabled={startingPenalty}
+                  className="mt-2 w-full rounded-lg border border-violet-400/40 bg-violet-700/20 px-4 py-2 text-sm font-semibold text-violet-200 hover:bg-violet-700/30 disabled:opacity-50"
+                >
+                  {startingPenalty ? 'Iniciando…' : '🥅 Iniciar tanda de penales'}
+                </button>
+              )}
+              {!liveHasStarted && (
                 <p className="mt-2 rounded border border-cyan-300/40 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
                   Debes iniciar el partido para habilitar eventos, cambios y controles avanzados.
                 </p>
@@ -6570,6 +6316,445 @@ function App() {
           </section>
         )}
 
+        {adminView === 'finales' && (
+          <section className="mt-6 space-y-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+            <h3 className="text-lg font-semibold text-white">Fases Finales (Cuadro de Eliminación)</h3>
+
+            {!selectedLeague && (
+              <p className="text-sm text-slate-300">Selecciona una liga para gestionar las fases finales.</p>
+            )}
+
+            {selectedLeague && (
+              <>
+                {/* Category selector */}
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="text-sm font-medium text-slate-300">Categoría:</label>
+                  <select
+                    value={knockoutCategoryId || (selectedLeague.categories[0]?.id ?? '')}
+                    onChange={async (e) => {
+                      const catId = e.target.value
+                      setKnockoutCategoryId(catId)
+                      setKnockoutBracket(null)
+                      setKnockoutFormats([])
+                      setKnockoutSelectedFormat('')
+                      setKnockoutMessage('')
+                      if (!catId) return
+                      setKnockoutBracketLoading(true)
+                      const res = await apiService.getKnockoutBracketAdmin(selectedLeague.id, catId)
+                      setKnockoutBracketLoading(false)
+                      if (res.ok) setKnockoutBracket(res.data)
+                    }}
+                    className="rounded-lg border border-white/20 bg-slate-800 px-3 py-1.5 text-sm text-white"
+                  >
+                    {selectedLeague.categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const catId = knockoutCategoryId || (selectedLeague.categories[0]?.id ?? '')
+                      if (!catId) return
+                      setKnockoutBracketLoading(true)
+                      setKnockoutMessage('')
+                      const res = await apiService.getKnockoutBracketAdmin(selectedLeague.id, catId)
+                      setKnockoutBracketLoading(false)
+                      if (res.ok) setKnockoutBracket(res.data)
+                    }}
+                    className="rounded-lg border border-white/20 bg-slate-700 px-3 py-1.5 text-xs text-white hover:bg-slate-600"
+                  >
+                    {knockoutBracketLoading ? 'Cargando…' : 'Recargar bracket'}
+                  </button>
+                </div>
+
+                {/* If no bracket yet → setup form */}
+                {!knockoutBracket && !knockoutBracketLoading && (
+                  <div className="space-y-4 rounded-xl border border-white/10 bg-slate-800/50 p-4">
+                    <h4 className="font-semibold text-white">Crear cuadro de eliminación</h4>
+
+                    {/* Qualified teams list */}
+                    <div>
+                      <p className="mb-2 text-sm font-medium text-slate-300">
+                        Equipos clasificados ({finalQualifiedTeams.length})
+                        <span className="ml-2 text-xs text-slate-400">
+                          (según tabla de posiciones y config. de clasificados en la categoría)
+                        </span>
+                      </p>
+                      {finalQualifiedTeams.length === 0 ? (
+                        <p className="text-sm text-slate-400">No hay equipos registrados o partidos jugados.</p>
+                      ) : (
+                        <ol className="space-y-1">
+                          {finalQualifiedTeams.map((team, idx) => (
+                            <li key={team.teamId} className="flex items-center gap-2 text-sm text-slate-200">
+                              <span className="w-5 text-right text-slate-400">{idx + 1}.</span>
+                              <span>{team.teamName}</span>
+                              <span className="text-xs text-slate-400">{team.pts} pts · DG {team.dg}</span>
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+                    </div>
+
+                    {finalQualifiedTeams.length >= 2 && (
+                      <>
+                        {/* Load formats */}
+                        {knockoutFormats.length === 0 && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const catId = knockoutCategoryId || (selectedLeague.categories[0]?.id ?? '')
+                              const res = await apiService.getKnockoutFormats(selectedLeague.id, catId, finalQualifiedTeams.length)
+                              if (res.ok) {
+                                setKnockoutFormats(res.data)
+                                if (res.data.length > 0) setKnockoutSelectedFormat(res.data[0]?.format ?? '')
+                              }
+                            }}
+                            className="rounded-lg border border-primary-300/40 bg-primary-500/20 px-3 py-1.5 text-sm text-primary-100 hover:bg-primary-500/30"
+                          >
+                            Ver formatos disponibles
+                          </button>
+                        )}
+
+                        {knockoutFormats.length > 0 && (
+                          <div className="space-y-3">
+                            <div>
+                              <p className="mb-2 text-sm font-medium text-slate-300">Formato del cuadro:</p>
+                              <div className="flex flex-wrap gap-2">
+                                {knockoutFormats.map((opt) => (
+                                  <button
+                                    key={opt.format}
+                                    type="button"
+                                    onClick={() => setKnockoutSelectedFormat(opt.format)}
+                                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                                      knockoutSelectedFormat === opt.format
+                                        ? 'border-primary-300/40 bg-primary-500/20 text-primary-100'
+                                        : 'border-white/20 bg-slate-700 text-slate-200'
+                                    }`}
+                                  >
+                                    {opt.label} ({opt.teamsNeeded} equipos)
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div>
+                              <p className="mb-2 text-sm font-medium text-slate-300">Método de siembra:</p>
+                              <div className="flex gap-3">
+                                {(['intelligent', 'random'] as const).map((m) => (
+                                  <label key={m} className="flex cursor-pointer items-center gap-2 text-sm text-slate-200">
+                                    <input
+                                      type="radio"
+                                      name="seedingMethod"
+                                      value={m}
+                                      checked={knockoutSeedingMethod === m}
+                                      onChange={() => setKnockoutSeedingMethod(m)}
+                                      className="accent-primary-400"
+                                    />
+                                    {m === 'intelligent' ? 'Inteligente (1 vs último, etc.)' : 'Aleatorio'}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              disabled={knockoutCreating || !knockoutSelectedFormat}
+                              onClick={async () => {
+                                const catId = knockoutCategoryId || (selectedLeague.categories[0]?.id ?? '')
+                                setKnockoutCreating(true)
+                                setKnockoutMessage('')
+                                const res = await apiService.createKnockout(selectedLeague.id, catId, {
+                                  format: knockoutSelectedFormat,
+                                  seedingMethod: knockoutSeedingMethod,
+                                  qualifiedTeams: finalQualifiedTeams.map((t, idx) => ({
+                                    teamId: t.teamId,
+                                    teamName: t.teamName,
+                                    position: idx + 1,
+                                  })),
+                                })
+                                setKnockoutCreating(false)
+                                if (res.ok) {
+                                  setKnockoutBracket(res.data)
+                                  setKnockoutMessage('¡Cuadro generado exitosamente!')
+                                } else {
+                                  setKnockoutMessage(res.message ?? 'Error al crear bracket')
+                                }
+                              }}
+                              className="rounded-lg border border-green-400/30 bg-green-500/20 px-4 py-2 text-sm font-semibold text-green-100 hover:bg-green-500/30 disabled:opacity-50"
+                            >
+                              {knockoutCreating ? 'Generando…' : 'Generar cuadro'}
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {knockoutMessage && (
+                  <p className="rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm text-slate-200">{knockoutMessage}</p>
+                )}
+
+                {/* Bracket visual */}
+                {knockoutBracket && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-slate-400">
+                        Bracket generado · {knockoutBracket.rounds.length} rondas · siembra: {knockoutBracket.seedingMethod}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!confirm('¿Eliminar el bracket y todos los partidos de fases finales?')) return
+                          const catId = knockoutCategoryId || (selectedLeague.categories[0]?.id ?? '')
+                          const res = await apiService.deleteKnockout(selectedLeague.id, catId)
+                          if (res.ok) {
+                            setKnockoutBracket(null)
+                            setKnockoutFormats([])
+                            setKnockoutSelectedFormat('')
+                            setKnockoutMessage('Bracket eliminado.')
+                          }
+                        }}
+                        className="rounded border border-red-400/30 bg-red-500/15 px-2 py-1 text-xs text-red-200 hover:bg-red-500/25"
+                      >
+                        Eliminar bracket
+                      </button>
+                    </div>
+
+                    {/* Rounds columns */}
+                    <div className="flex gap-4 overflow-x-auto pb-4">
+                      {knockoutBracket.rounds.map((round) => (
+                        <div key={round.index} className="flex min-w-[220px] flex-col gap-3">
+                          <h5 className="text-center text-xs font-bold uppercase tracking-wide text-slate-300">{round.name}</h5>
+                          {round.matches.map((match) => {
+                            const activeLeg: 1 | 2 = match.twoLegged ? (match.leg1Done ? 2 : 1) : 1
+                            const draft = knockoutResultDraft[match.id] ?? { homeGoals: '', awayGoals: '', penaltyHome: '', penaltyAway: '', winnerId: '', leg: activeLeg }
+                            const isFinished = match.status === 'finished'
+                            // Two-legged partially done: leg1 finished but not leg2 → show as "pending"
+                            const isBye = match.isBye
+                            return (
+                              <div
+                                key={match.id}
+                                className={`rounded-xl border p-3 text-xs ${
+                                  isFinished
+                                    ? 'border-green-400/20 bg-green-900/20'
+                                    : 'border-white/10 bg-slate-800/60'
+                                }`}
+                              >
+                                {isBye ? (
+                                  <div className="text-slate-400">
+                                    <p className="font-semibold text-slate-200">{match.homeTeamName ?? '?'}</p>
+                                    <p className="text-slate-500">BYE — avanza automáticamente</p>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="mb-2 space-y-1">
+                                      <div className={`flex items-center justify-between gap-1 ${match.winnerId === match.homeTeamId ? 'font-bold text-green-300' : 'text-slate-200'}`}>
+                                        <span className="truncate">{match.homeTeamName ?? 'Por definir'}</span>
+                                        {isFinished && <span>{match.homeGoals ?? '-'}</span>}
+                                      </div>
+                                      <div className={`flex items-center justify-between gap-1 ${match.winnerId === match.awayTeamId ? 'font-bold text-green-300' : 'text-slate-200'}`}>
+                                        <span className="truncate">{match.awayTeamName ?? 'Por definir'}</span>
+                                        {isFinished && <span>{match.awayGoals ?? '-'}</span>}
+                                      </div>
+                                      {/* Two-legged per-leg breakdown */}
+                                      {match.twoLegged && (match.leg1Done || match.leg2Done) && (
+                                        <div className="mt-1 space-y-0.5 text-slate-400">
+                                          {match.leg1Done && (
+                                            <p>Ida: {match.leg1HomeGoals ?? '-'} - {match.leg1AwayGoals ?? '-'}</p>
+                                          )}
+                                          {match.leg2Done && (
+                                            <p>Vuelta: {match.leg2AwayGoals ?? '-'} - {match.leg2HomeGoals ?? '-'}</p>
+                                          )}
+                                          {match.leg1Done && match.leg2Done && (
+                                            <p className="text-slate-300">Global: {match.homeGoals ?? '-'} - {match.awayGoals ?? '-'}</p>
+                                          )}
+                                        </div>
+                                      )}
+                                      {isFinished && (match.penaltyHome !== null || match.penaltyAway !== null) && (
+                                        <p className="text-slate-400">Penales: {match.penaltyHome} - {match.penaltyAway}</p>
+                                      )}
+                                      {isFinished && match.winnerName && (
+                                        <p className="text-green-400">Ganador: {match.winnerName}</p>
+                                      )}
+                                    </div>
+
+                                    {!isFinished && match.homeTeamId && match.awayTeamId && (
+                                      <div className="mt-2 space-y-2 border-t border-white/10 pt-2">
+                                        {/* Two-legged leg header */}
+                                        {match.twoLegged && (
+                                          <p className="font-semibold text-slate-300">
+                                            {activeLeg === 1 ? 'Ida' : 'Vuelta'}
+                                          </p>
+                                        )}
+                                        {/* For leg 2: show leg 1 result as reference */}
+                                        {match.twoLegged && activeLeg === 2 && match.leg1Done && (
+                                          <p className="text-slate-400">
+                                            Ida: {match.leg1HomeGoals ?? '-'} - {match.leg1AwayGoals ?? '-'}
+                                          </p>
+                                        )}
+                                        {/* Goals inputs */}
+                                        <div className="grid grid-cols-2 gap-1">
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            placeholder={match.twoLegged && activeLeg === 2 ? `${match.awayTeamName ?? 'V'}` : 'Goles L'}
+                                            value={draft.homeGoals}
+                                            onChange={(e) => setKnockoutResultDraft((prev) => ({ ...prev, [match.id]: { ...draft, homeGoals: e.target.value } }))}
+                                            className="rounded border border-white/15 bg-slate-700 px-2 py-1 text-center text-white"
+                                          />
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            placeholder={match.twoLegged && activeLeg === 2 ? `${match.homeTeamName ?? 'L'}` : 'Goles V'}
+                                            value={draft.awayGoals}
+                                            onChange={(e) => setKnockoutResultDraft((prev) => ({ ...prev, [match.id]: { ...draft, awayGoals: e.target.value } }))}
+                                            className="rounded border border-white/15 bg-slate-700 px-2 py-1 text-center text-white"
+                                          />
+                                        </div>
+                                        {/* For leg 2 two-legged: show running aggregate */}
+                                        {match.twoLegged && activeLeg === 2 && draft.homeGoals !== '' && draft.awayGoals !== '' && (
+                                          (() => {
+                                            const homeAgg = (match.leg1HomeGoals ?? 0) + Number(draft.awayGoals)
+                                            const awayAgg = (match.leg1AwayGoals ?? 0) + Number(draft.homeGoals)
+                                            return (
+                                              <p className="text-xs text-slate-300">
+                                                Global: {homeAgg} - {awayAgg}
+                                                {homeAgg === awayAgg && ' · Empate → penales'}
+                                              </p>
+                                            )
+                                          })()
+                                        )}
+                                        {/* Penalties: single-leg draw OR leg2 aggregate draw */}
+                                        {(() => {
+                                          let showPenalties = false
+                                          if (!match.twoLegged && draft.homeGoals !== '' && draft.awayGoals !== '' && Number(draft.homeGoals) === Number(draft.awayGoals)) showPenalties = true
+                                          if (match.twoLegged && activeLeg === 2 && draft.homeGoals !== '' && draft.awayGoals !== '') {
+                                            const homeAgg = (match.leg1HomeGoals ?? 0) + Number(draft.awayGoals)
+                                            const awayAgg = (match.leg1AwayGoals ?? 0) + Number(draft.homeGoals)
+                                            if (homeAgg === awayAgg) showPenalties = true
+                                          }
+                                          return showPenalties ? (
+                                            <div className="grid grid-cols-2 gap-1">
+                                              <input
+                                                type="number"
+                                                min={0}
+                                                placeholder="Pen L"
+                                                value={draft.penaltyHome}
+                                                onChange={(e) => setKnockoutResultDraft((prev) => ({ ...prev, [match.id]: { ...draft, penaltyHome: e.target.value } }))}
+                                                className="rounded border border-amber-400/20 bg-slate-700 px-2 py-1 text-center text-amber-100"
+                                              />
+                                              <input
+                                                type="number"
+                                                min={0}
+                                                placeholder="Pen V"
+                                                value={draft.penaltyAway}
+                                                onChange={(e) => setKnockoutResultDraft((prev) => ({ ...prev, [match.id]: { ...draft, penaltyAway: e.target.value } }))}
+                                                className="rounded border border-amber-400/20 bg-slate-700 px-2 py-1 text-center text-amber-100"
+                                              />
+                                            </div>
+                                          ) : null
+                                        })()}
+                                        {/* Winner selector: only for single-leg or leg 2 */}
+                                        {(!match.twoLegged || activeLeg === 2) && (
+                                          <div className="flex flex-col gap-1">
+                                            <p className="text-slate-400">Ganador:</p>
+                                            {[{ id: match.homeTeamId, name: match.homeTeamName }, { id: match.awayTeamId, name: match.awayTeamName }].map((t) => (
+                                              <label key={t.id} className="flex cursor-pointer items-center gap-1 text-slate-200">
+                                                <input
+                                                  type="radio"
+                                                  name={`winner-${match.id}`}
+                                                  value={t.id ?? ''}
+                                                  checked={draft.winnerId === t.id}
+                                                  onChange={() => setKnockoutResultDraft((prev) => ({ ...prev, [match.id]: { ...draft, winnerId: t.id ?? '' } }))}
+                                                  className="accent-green-400"
+                                                />
+                                                {t.name}
+                                              </label>
+                                            ))}
+                                          </div>
+                                        )}
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            knockoutSavingMatchId === match.id ||
+                                            draft.homeGoals === '' ||
+                                            draft.awayGoals === '' ||
+                                            ((!match.twoLegged || activeLeg === 2) && !draft.winnerId)
+                                          }
+                                          onClick={async () => {
+                                            const catId = knockoutCategoryId || (selectedLeague.categories[0]?.id ?? '')
+                                            const homeG = Number(draft.homeGoals)
+                                            const awayG = Number(draft.awayGoals)
+                                            setKnockoutSavingMatchId(match.id)
+                                            setKnockoutMessage('')
+
+                                            const isLeg1 = match.twoLegged && activeLeg === 1
+                                            const payload: {
+                                              knockoutMatchId: string
+                                              leg: 1 | 2
+                                              homeGoals: number
+                                              awayGoals: number
+                                              winnerId?: string
+                                              winnerName?: string
+                                              penaltyHome?: number
+                                              penaltyAway?: number
+                                            } = {
+                                              knockoutMatchId: match.id,
+                                              leg: activeLeg,
+                                              homeGoals: homeG,
+                                              awayGoals: awayG,
+                                            }
+                                            if (!isLeg1) {
+                                              const winnerTeam = [
+                                                { id: match.homeTeamId, name: match.homeTeamName },
+                                                { id: match.awayTeamId, name: match.awayTeamName },
+                                              ].find((t) => t.id === draft.winnerId)
+                                              payload.winnerId = draft.winnerId
+                                              payload.winnerName = winnerTeam?.name ?? draft.winnerId
+                                              if (draft.penaltyHome !== '') payload.penaltyHome = Number(draft.penaltyHome)
+                                              if (draft.penaltyAway !== '') payload.penaltyAway = Number(draft.penaltyAway)
+                                            }
+
+                                            const res = await apiService.registerKnockoutResult(selectedLeague.id, catId, payload)
+                                            setKnockoutSavingMatchId('')
+                                            if (res.ok) {
+                                              setKnockoutBracket(res.data)
+                                              setKnockoutResultDraft((prev) => {
+                                                const next = { ...prev }
+                                                delete next[match.id]
+                                                return next
+                                              })
+                                              setKnockoutMessage(isLeg1 ? 'Ida guardada.' : 'Resultado guardado.')
+                                            } else {
+                                              setKnockoutMessage(res.message ?? 'Error al guardar resultado')
+                                            }
+                                          }}
+                                          className="w-full rounded border border-green-400/30 bg-green-500/20 py-1 text-xs font-semibold text-green-100 hover:bg-green-500/30 disabled:opacity-50"
+                                        >
+                                          {knockoutSavingMatchId === match.id
+                                            ? 'Guardando…'
+                                            : match.twoLegged && activeLeg === 1
+                                              ? 'Guardar Ida'
+                                              : 'Guardar resultado'}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+        )}
+
         {adminView === 'historial' && (
           <section className="mt-6 space-y-4 rounded-2xl border border-white/10 bg-white/5 p-5">
             <h3 className="text-lg font-semibold text-white">Historial y acumulado de campeonato</h3>
@@ -6908,6 +7093,203 @@ function App() {
               </>
             )}
           </section>
+        )}
+
+        {showPenaltyModal && liveMatch && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-[2px]">
+            <div className="w-full max-w-lg rounded-2xl border border-violet-500/30 bg-slate-900 p-5 shadow-2xl shadow-black/50">
+              {/* Header */}
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-violet-300">🥅 Tanda de penales</h3>
+                  <p className="mt-0.5 text-xs text-slate-400">Registra cada tiro para local y visitante.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPenaltyModal(false)}
+                  className="rounded border border-white/20 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              {/* Marcador */}
+              <div className="mb-4 flex items-center justify-center gap-6 rounded-xl bg-slate-800 py-4">
+                <div className="text-center">
+                  <p className="text-xs text-slate-400">{liveMatch.homeTeam.name}</p>
+                  <p className="text-4xl font-bold text-white">{liveMatch.penaltyShootout?.homeScore ?? 0}</p>
+                </div>
+                <p className="text-2xl font-bold text-slate-500">–</p>
+                <div className="text-center">
+                  <p className="text-xs text-slate-400">{liveMatch.awayTeam.name}</p>
+                  <p className="text-4xl font-bold text-white">{liveMatch.penaltyShootout?.awayScore ?? 0}</p>
+                </div>
+              </div>
+
+              {/* Ganador detectado */}
+              {(() => {
+                const ps = liveMatch.penaltyShootout
+                const kicks = ps?.kicks ?? []
+                const seriesCount = competitionRulesDraft.seriesCount ?? 5
+                const homeKicks = kicks.filter((k) => k.team === 'home')
+                const awayKicks = kicks.filter((k) => k.team === 'away')
+                const totalRounds = Math.max(homeKicks.length, awayKicks.length)
+                const remaining = seriesCount - totalRounds
+                const homeGoals = ps?.homeScore ?? 0
+                const awayGoals = ps?.awayScore ?? 0
+                // Detección de victoria matemática
+                const homeCantCatch = awayGoals > homeGoals + (seriesCount - homeKicks.length)
+                const awayCantCatch = homeGoals > awayGoals + (seriesCount - awayKicks.length)
+                const winner = (homeGoals > awayGoals && remaining <= 0) || awayCantCatch
+                  ? liveMatch.homeTeam.name
+                  : (awayGoals > homeGoals && remaining <= 0) || homeCantCatch
+                  ? liveMatch.awayTeam.name
+                  : null
+                if (!winner) return null
+                return (
+                  <div className="mb-3 rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-2 text-center text-sm font-semibold text-emerald-300">
+                    🏆 {winner} gana la tanda
+                  </div>
+                )
+              })()}
+
+              {/* Lista de tiros */}
+              {(liveMatch.penaltyShootout?.kicks.length ?? 0) > 0 && (
+                <div className="mb-4 max-h-36 space-y-1 overflow-auto rounded-lg border border-white/10 bg-slate-800/60 p-2">
+                  {liveMatch.penaltyShootout!.kicks.map((kick, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <span className="w-5 text-center text-slate-500">{i + 1}.</span>
+                      <span className={`font-medium ${kick.team === 'home' ? 'text-sky-300' : 'text-amber-300'}`}>
+                        {kick.team === 'home' ? liveMatch.homeTeam.name : liveMatch.awayTeam.name}
+                      </span>
+                      <span className={kick.result === 'goal' ? 'text-emerald-400' : 'text-rose-400'}>
+                        {kick.result === 'goal' ? '⚽ Gol' : '❌ Falla'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Botones de registro */}
+              {!liveIsFinished && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <p className="text-center text-xs font-semibold text-sky-300">{liveMatch.homeTeam.name}</p>
+                    <button
+                      type="button"
+                      onClick={() => void handleRegisterKick('home', 'goal')}
+                      disabled={registeringKick}
+                      className="w-full rounded-lg bg-emerald-600 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                    >
+                      ⚽ Gol
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleRegisterKick('home', 'miss')}
+                      disabled={registeringKick}
+                      className="w-full rounded-lg bg-rose-700 py-2 text-xs font-semibold text-white hover:bg-rose-600 disabled:opacity-50"
+                    >
+                      ❌ Falla
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-center text-xs font-semibold text-amber-300">{liveMatch.awayTeam.name}</p>
+                    <button
+                      type="button"
+                      onClick={() => void handleRegisterKick('away', 'goal')}
+                      disabled={registeringKick}
+                      className="w-full rounded-lg bg-emerald-600 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                    >
+                      ⚽ Gol
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleRegisterKick('away', 'miss')}
+                      disabled={registeringKick}
+                      className="w-full rounded-lg bg-rose-700 py-2 text-xs font-semibold text-white hover:bg-rose-600 disabled:opacity-50"
+                    >
+                      ❌ Falla
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {showWalkoverModal && liveMatch && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/75 px-4 backdrop-blur-[2px]">
+            <div className="w-full max-w-sm rounded-2xl border border-amber-500/30 bg-slate-900 p-5 shadow-2xl shadow-black/50">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-amber-300">W.O. — Walkover</h3>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    El partido no fue iniciado. Selecciona el equipo ganador por W.O.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowWalkoverModal(false)}
+                  disabled={walkoverSaving}
+                  className="rounded border border-white/20 bg-slate-800 px-2 py-1 text-xs text-slate-200 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+              </div>
+
+              <div className="mb-4 flex flex-col gap-2">
+                <p className="text-xs font-medium text-slate-300">Equipo ganador</p>
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm text-white hover:border-amber-400/40">
+                  <input
+                    type="radio"
+                    name="woWinner"
+                    value="home"
+                    checked={walkoverWinner === 'home'}
+                    onChange={() => setWalkoverWinner('home')}
+                    className="accent-amber-400"
+                  />
+                  {liveMatch.homeTeam.name} <span className="ml-1 text-xs text-slate-400">(Local)</span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm text-white hover:border-amber-400/40">
+                  <input
+                    type="radio"
+                    name="woWinner"
+                    value="away"
+                    checked={walkoverWinner === 'away'}
+                    onChange={() => setWalkoverWinner('away')}
+                    className="accent-amber-400"
+                  />
+                  {liveMatch.awayTeam.name} <span className="ml-1 text-xs text-slate-400">(Visitante)</span>
+                </label>
+              </div>
+
+              <div className="mb-5">
+                <label className="mb-1 block text-xs font-medium text-slate-300">
+                  Diferencia de goles (resultado W.O.)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={99}
+                  value={walkoverGoalDiffDraft}
+                  onChange={(e) => setWalkoverGoalDiffDraft(Math.max(0, Math.min(99, Number(e.target.value))))}
+                  className="w-full rounded-lg border border-white/20 bg-slate-800 px-3 py-2 text-sm text-white focus:border-amber-400 focus:outline-none"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Resultado: {walkoverWinner === 'home' ? liveMatch.homeTeam.name : liveMatch.awayTeam.name} {walkoverGoalDiffDraft} – 0
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => void finalizeMatchAsWalkover()}
+                disabled={walkoverSaving}
+                className="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {walkoverSaving ? 'Guardando W.O…' : 'Confirmar W.O.'}
+              </button>
+            </div>
+          </div>
         )}
 
         {showMvpModal && (

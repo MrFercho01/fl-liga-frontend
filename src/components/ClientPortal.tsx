@@ -165,7 +165,7 @@ type LineupPlayer = {
   photoUrl?: string
 }
 
-type ClientStatsTab = 'matches' | 'standings' | 'scorers' | 'assists' | 'yellows' | 'reds' | 'keepers'
+type ClientStatsTab = 'matches' | 'standings' | 'scorers' | 'assists' | 'yellows' | 'reds' | 'keepers' | 'knockout'
 
 const parseManualMatchId = (matchId: string, round: number) => {
   if (matchId.startsWith('manual__')) {
@@ -692,6 +692,8 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   const [publicRankingPage, setPublicRankingPage] = useState(1)
   const [publicKeepersSearchTerm, setPublicKeepersSearchTerm] = useState('')
   const [publicKeepersPage, setPublicKeepersPage] = useState(1)
+  const [knockoutBracket, setKnockoutBracket] = useState<import('../types/knockout').KnockoutBracket | null>(null)
+  const [knockoutBracketLoaded, setKnockoutBracketLoaded] = useState(false)
   const [publicEngagement, setPublicEngagement] = useState<PublicEngagementState>(() => ({
     visits: 0,
     likes: 0,
@@ -1765,6 +1767,8 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
         status: liveMatch.status,
         minute: liveMatch.currentMinute,
         timer: liveMatch.timer,
+        phase: liveMatch.phase,
+        penaltyShootout: liveMatch.penaltyShootout,
       }
     }
 
@@ -1775,6 +1779,8 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       status: liveMatch.status,
       minute: liveMatch.currentMinute,
       timer: liveMatch.timer,
+      phase: liveMatch.phase,
+      penaltyShootout: liveMatch.penaltyShootout,
     }
   }, [liveMatch, selectedMatch])
 
@@ -2412,9 +2418,11 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
 
     const currentPhase = liveForSelected.status === 'finished'
       ? 'finished'
-      : liveForSelected.status === 'live'
-        ? (liveForSelected.timer.running ? 'running' : liveForSelected.timer.elapsedSeconds > 0 ? 'break' : 'scheduled')
-        : 'scheduled'
+      : liveForSelected.phase === 'penalty_shootout'
+        ? 'penalty_shootout'
+        : liveForSelected.status === 'live'
+          ? (liveForSelected.timer.running ? 'running' : liveForSelected.timer.elapsedSeconds > 0 ? 'break' : 'scheduled')
+          : 'scheduled'
 
     const sameMatch = previousTrackedMatchIdRef.current === selectedMatch.id
     const previousPhase = sameMatch ? previousLivePhaseRef.current : ''
@@ -2429,6 +2437,9 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       }
       if (previousPhase === 'break' && currentPhase === 'running') {
         void showFollowNotification('▶️ Inicia el segundo tiempo', label, `phase-second-half-${selectedMatch.id}`)
+      }
+      if (previousPhase !== 'penalty_shootout' && currentPhase === 'penalty_shootout') {
+        void showFollowNotification('🥅 Tanda de penales', label, `phase-penalties-${selectedMatch.id}`)
       }
       if (previousPhase !== 'finished' && currentPhase === 'finished') {
         const score = `${liveForSelected.homeTeam.stats.goals} - ${liveForSelected.awayTeam.stats.goals}`
@@ -2635,33 +2646,38 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
           </div>
         </div>
 
-        {!isMatchScreen && (
-          <div className="mb-4 rounded-xl border border-white/15 bg-slate-900/60 p-3">
-            <p className="text-xs text-slate-200">Identifica tu visita con alias o continúa anónimo.</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <input
-                value={visitorAliasDraft}
-                onChange={(event) => setVisitorAliasDraft(event.target.value)}
-                placeholder="Tu alias"
-                className="min-w-[180px] flex-1 rounded border border-white/20 bg-slate-900 px-3 py-2 text-sm text-white"
-              />
-              <button
-                type="button"
-                onClick={handleSaveAlias}
-                className="rounded border border-cyan-300/40 bg-cyan-500/20 px-3 py-2 text-xs font-semibold text-cyan-100"
-              >
-                Guardar alias
-              </button>
-              <button
-                type="button"
-                onClick={handleContinueAnonymous}
-                className="rounded border border-white/20 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-100"
-              >
-                Continuar anónimo
-              </button>
+        {!isMatchScreen && (() => {
+          const social = selectedLeague?.socialLinks
+          const links: { key: string; label: string; url?: string; icon: string; colorClass: string }[] = [
+            { key: 'instagram', label: 'Instagram', url: social?.instagram, icon: '📸', colorClass: 'border-pink-400/40 bg-pink-500/15 text-pink-100 hover:bg-pink-500/30' },
+            { key: 'facebook', label: 'Facebook', url: social?.facebook, icon: '📘', colorClass: 'border-blue-400/40 bg-blue-500/15 text-blue-100 hover:bg-blue-500/30' },
+            { key: 'tiktok', label: 'TikTok', url: social?.tiktok, icon: '🎵', colorClass: 'border-slate-300/30 bg-slate-700/60 text-slate-100 hover:bg-slate-600/60' },
+            { key: 'youtube', label: 'YouTube', url: social?.youtube, icon: '▶️', colorClass: 'border-red-400/40 bg-red-500/15 text-red-100 hover:bg-red-500/30' },
+            { key: 'x', label: 'X', url: social?.x, icon: '✖', colorClass: 'border-slate-400/30 bg-slate-800/60 text-slate-100 hover:bg-slate-700/60' },
+          ].filter((link) => !!link.url)
+
+          if (links.length === 0) return null
+
+          return (
+            <div className="mb-4 rounded-xl border border-white/15 bg-slate-900/60 p-3">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Síguenos en redes</p>
+              <div className="flex flex-wrap gap-2">
+                {links.map((link) => (
+                  <a
+                    key={link.key}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${link.colorClass}`}
+                  >
+                    <span>{link.icon}</span>
+                    <span>{link.label}</span>
+                  </a>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {loadingLeagues && <p className="text-sm text-primary-200">Cargando ligas del cliente...</p>}
         {errorMessage && <p className="text-sm text-rose-300">{errorMessage}</p>}
@@ -2719,11 +2735,23 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                     { key: 'yellows', label: 'TA' },
                     { key: 'reds', label: 'TR' },
                     { key: 'keepers', label: 'Arqueras' },
+                    { key: 'knockout', label: 'Fase Final' },
                   ] as Array<{ key: ClientStatsTab; label: string }>).map((tab) => (
                     <button
                       key={tab.key}
                       type="button"
-                      onClick={() => setPublicStatsTab(tab.key)}
+                      onClick={async () => {
+                        setPublicStatsTab(tab.key)
+                        if (tab.key === 'knockout' && !knockoutBracketLoaded) {
+                          const leagueId = selectedLeague?.id
+                          const catId = activeCategoryId
+                          if (leagueId && catId) {
+                            const res = await apiService.getKnockoutBracketPublic(leagueId, catId)
+                            setKnockoutBracketLoaded(true)
+                            if (res.ok) setKnockoutBracket(res.data)
+                          }
+                        }
+                      }}
                       className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
                         publicStatsTab === tab.key
                           ? 'border-cyan-300/70 bg-cyan-500/25 text-cyan-100 shadow-md shadow-cyan-500/20'
@@ -3167,6 +3195,68 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                         )}
                       </>
                     )}
+                    {publicStatsTab === 'knockout' && (
+                      <div className="space-y-3">
+                        <p className="text-sm font-semibold text-white">Cuadro de Fases Finales</p>
+                        {!knockoutBracket && knockoutBracketLoaded && (
+                          <p className="text-xs text-slate-400">No hay bracket de fases finales disponible para esta categoría.</p>
+                        )}
+                        {!knockoutBracketLoaded && (
+                          <p className="text-xs text-slate-400">Cargando…</p>
+                        )}
+                        {knockoutBracket && (
+                          <div className="flex gap-4 overflow-x-auto pb-2">
+                            {knockoutBracket.rounds.map((round) => (
+                              <div key={round.index} className="flex min-w-[180px] flex-col gap-2">
+                                <h6 className="text-center text-[10px] font-bold uppercase tracking-wide text-slate-400">{round.name}</h6>
+                                {round.matches.map((match) => {
+                                  const isFinished = match.status === 'finished'
+                                  const isBye = match.isBye
+                                  return (
+                                    <div
+                                      key={match.id}
+                                      className={`rounded-lg border p-2 text-[11px] ${
+                                        isFinished
+                                          ? 'border-green-400/20 bg-green-900/20'
+                                          : 'border-white/10 bg-slate-800/60'
+                                      }`}
+                                    >
+                                      {isBye ? (
+                                        <p className="font-semibold text-slate-200">{match.homeTeamName ?? '?'} <span className="text-slate-500 font-normal">(BYE)</span></p>
+                                      ) : (
+                                        <>
+                                          <div className={`flex justify-between ${match.winnerId === match.homeTeamId ? 'font-bold text-green-300' : 'text-slate-200'}`}>
+                                            <span className="truncate">{match.homeTeamName ?? '?'}</span>
+                                            {isFinished && <span className="ml-1">{match.homeGoals}</span>}
+                                          </div>
+                                          <div className={`flex justify-between ${match.winnerId === match.awayTeamId ? 'font-bold text-green-300' : 'text-slate-200'}`}>
+                                            <span className="truncate">{match.awayTeamName ?? '?'}</span>
+                                            {isFinished && <span className="ml-1">{match.awayGoals}</span>}
+                                          </div>
+                                          {/* Two-legged per-leg scores */}
+                                          {match.twoLegged && (match.leg1Done || match.leg2Done) && (
+                                            <div className="mt-1 space-y-0.5 text-slate-500">
+                                              {match.leg1Done && <p>Ida: {match.leg1HomeGoals ?? '-'} - {match.leg1AwayGoals ?? '-'}</p>}
+                                              {match.leg2Done && <p>Vuelta: {match.leg2AwayGoals ?? '-'} - {match.leg2HomeGoals ?? '-'}</p>}
+                                            </div>
+                                          )}
+                                          {isFinished && (match.penaltyHome !== null) && (
+                                            <p className="mt-0.5 text-slate-500">Pen: {match.penaltyHome}-{match.penaltyAway}</p>
+                                          )}
+                                          {!isFinished && !match.homeTeamId && (
+                                            <p className="text-slate-500">Por definir</p>
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </article>
@@ -3336,6 +3426,30 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                           ? `${scoreboard.isBreak ? `Descanso · ${scoreboard.clock}` : scoreboard.status === 'live' ? `Min ${scoreboard.minute} · ${scoreboard.clock}` : scoreboard.status === 'finished' ? `Final ${scoreboard.clock}` : 'Previo 00:00'}`
                           : 'Evento aún no inicia'}
                       </p>
+
+                      {/* Tanda de penales */}
+                      {liveForSelected?.phase === 'penalty_shootout' && liveForSelected.penaltyShootout && (
+                        <div className="mt-2 rounded-lg border border-violet-400/40 bg-violet-500/15 px-3 py-2">
+                          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-violet-300">🥅 Tanda de penales</p>
+                          <p className="text-base font-bold text-white">
+                            {liveForSelected.penaltyShootout.homeScore} – {liveForSelected.penaltyShootout.awayScore}
+                          </p>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {liveForSelected.penaltyShootout.kicks.map((kick, i) => (
+                              <span
+                                key={i}
+                                className={`rounded px-1 py-0.5 text-[10px] font-semibold ${
+                                  kick.team === 'home'
+                                    ? kick.result === 'goal' ? 'bg-sky-500/30 text-sky-200' : 'bg-slate-700/60 text-slate-400'
+                                    : kick.result === 'goal' ? 'bg-amber-500/30 text-amber-200' : 'bg-slate-700/60 text-slate-400'
+                                }`}
+                              >
+                                {kick.team === 'home' ? 'L' : 'V'}{kick.result === 'goal' ? '⚽' : '✗'}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="space-y-2">

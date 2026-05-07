@@ -87,11 +87,25 @@ export interface LiveEvent {
   clock: string
 }
 
+export type LiveMatchPhase = 'first_half' | 'second_half' | 'penalty_shootout'
+
+export interface PenaltyKick {
+  team: 'home' | 'away'
+  result: 'goal' | 'miss'
+}
+
+export interface PenaltyShootoutData {
+  kicks: PenaltyKick[]
+  homeScore: number
+  awayScore: number
+}
+
 export interface LiveMatch {
   id: string
   leagueName: string
   categoryName: string
   status: 'scheduled' | 'live' | 'finished'
+  phase?: LiveMatchPhase
   homeTeam: LiveTeam
   awayTeam: LiveTeam
   settings: LiveSettings
@@ -102,6 +116,7 @@ export interface LiveMatch {
   }
   currentMinute: number
   events: LiveEvent[]
+  penaltyShootout?: PenaltyShootoutData
 }
 
 export type LiveTimerAction = 'start' | 'stop' | 'reset' | 'finish'

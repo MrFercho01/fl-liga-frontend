@@ -3,6 +3,7 @@ import JSZip from 'jszip'
 import jsQR from 'jsqr'
 import QRCode from 'qrcode'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import * as XLSX from 'xlsx'
 import { apiService } from '../services/api'
 import type { FixtureResponse, FixtureScheduleEntry, PlayedMatchRecord, RegisteredTeam, RoundAwardsRankingEntry } from '../types/admin.ts'
 import type { League } from '../types/league.ts'
@@ -25,6 +26,16 @@ interface PlayerDraft {
   photoUrl: string
 }
 
+interface BulkImportPlayerDraft {
+  id: string
+  name: string
+  nickname: string
+  age: string
+  number: string
+  position: string
+  error?: string
+}
+
 interface LeagueEditDraft {
   name: string
   country: string
@@ -33,6 +44,17 @@ interface LeagueEditDraft {
   themeColor: string
   backgroundImageUrl: string
   logoUrl: string
+  socialInstagram: string
+  socialFacebook: string
+  socialTiktok: string
+  socialYoutube: string
+  socialX: string
+}
+
+interface LeagueCreationFeedback {
+  tone: 'progress' | 'success' | 'error'
+  title: string
+  detail: string
 }
 
 interface TechnicalPersonDraft {
@@ -64,7 +86,7 @@ interface RoundAwardsDraft {
   roundBestPlayerId: string
 }
 
-type AdminTab = 'ligas' | 'equipos' | 'jugadores' | 'carnet' | 'fixture' | 'mvp'
+type AdminTab = 'ligas' | 'categorias' | 'configuracion' | 'equipos' | 'jugadores' | 'carnet' | 'fixture' | 'mvp'
 type ConfirmAction =
   | { type: 'delete-league'; leagueId: string; label: string }
   | { type: 'delete-team'; teamId: string; label: string }
@@ -86,6 +108,88 @@ const playerPositionOptions = ['POR', 'DEF', 'MED', 'DEL'] as const
 const normalizePosition = (value: string) => {
   const normalized = value.trim().toUpperCase()
   return playerPositionOptions.includes(normalized as (typeof playerPositionOptions)[number]) ? normalized : 'POR'
+}
+
+const getNicknameFromName = (name: string) => {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return ''
+  return parts[parts.length - 1] ?? parts[0] ?? ''
+}
+
+const pickRandomDorsal = (usedNumbers: Set<number>) => {
+  for (let i = 0; i < 200; i += 1) {
+    const candidate = Math.floor(Math.random() * 99) + 1
+    if (!usedNumbers.has(candidate)) return candidate
+  }
+
+  for (let fallback = 1; fallback <= 999; fallback += 1) {
+    if (!usedNumbers.has(fallback)) return fallback
+  }
+
+  return Math.floor(Date.now() % 999) + 1
+}
+
+const parseExcelPlayers = (rows: unknown[][], existingNumbers: Set<number>): BulkImportPlayerDraft[] => {
+  if (rows.length === 0) return []
+
+  const firstRowLabels = (rows[0] ?? []).map((cell) => normalizeLabel(String(cell ?? '')))
+  const hasHeader = firstRowLabels.some((label) =>
+    label.includes('nombre')
+    || label.includes('jugador')
+    || label.includes('edad')
+    || label.includes('dorsal')
+    || label === 'numero'
+    || label.includes('nro'),
+  )
+
+  const defaultIndices = { name: 0, age: 1, number: 2 }
+  const headerIndices = {
+    name: firstRowLabels.findIndex((label) => label.includes('nombre') || label.includes('jugador')),
+    age: firstRowLabels.findIndex((label) => label.includes('edad')),
+    number: firstRowLabels.findIndex((label) => label.includes('dorsal') || label === 'numero' || label.includes('nro')),
+  }
+
+  const nameIdx = hasHeader && headerIndices.name >= 0 ? headerIndices.name : defaultIndices.name
+  const ageIdx = hasHeader && headerIndices.age >= 0 ? headerIndices.age : defaultIndices.age
+  const numberIdx = hasHeader && headerIndices.number >= 0 ? headerIndices.number : defaultIndices.number
+  const startAt = hasHeader ? 1 : 0
+
+  const usedNumbers = new Set(existingNumbers)
+  const parsed: BulkImportPlayerDraft[] = []
+
+  for (let idx = startAt; idx < rows.length; idx += 1) {
+    const row = rows[idx] ?? []
+    const rawName = String(row[nameIdx] ?? '').trim()
+    const rawAge = String(row[ageIdx] ?? '').trim()
+    const rawNumber = String(row[numberIdx] ?? '').trim()
+
+    if (!rawName && !rawAge && !rawNumber) continue
+
+    const ageValue = Number.parseInt(rawAge, 10)
+    const rowError = !rawName
+      ? 'Falta nombre'
+      : (!Number.isFinite(ageValue) || ageValue < 5 || ageValue > 99)
+        ? 'Edad inválida (5-99)'
+        : ''
+
+    let dorsalValue = Number.parseInt(rawNumber, 10)
+    if (!Number.isFinite(dorsalValue) || dorsalValue <= 0 || usedNumbers.has(dorsalValue)) {
+      dorsalValue = pickRandomDorsal(usedNumbers)
+    }
+    usedNumbers.add(dorsalValue)
+
+    parsed.push({
+      id: createDraftId(),
+      name: rawName,
+      nickname: getNicknameFromName(rawName),
+      age: Number.isFinite(ageValue) ? String(ageValue) : rawAge,
+      number: String(dorsalValue),
+      position: 'POR',
+      ...(rowError ? { error: rowError } : {}),
+    })
+  }
+
+  return parsed
 }
 
 const categoryTemplates = [
@@ -234,10 +338,11 @@ const makeRoundMatchKey = (homeTeamId: string, awayTeamId: string) => `${homeTea
 
 const managementFlowSteps = [
   { id: 1, label: 'Crear liga', hint: 'Pestaña Ligas' },
-  { id: 2, label: 'Configuración', hint: 'Menú superior > Configuración' },
-  { id: 3, label: 'Equipos', hint: 'Pestaña Equipos' },
-  { id: 4, label: 'Jugadores', hint: 'Pestaña Jugadores' },
-  { id: 5, label: 'Fixture', hint: 'Pestaña Fixture' },
+  { id: 2, label: 'Categorías', hint: 'Pestaña Categorías' },
+  { id: 3, label: 'Configuración', hint: 'Pestaña Configuración' },
+  { id: 4, label: 'Equipos', hint: 'Pestaña Equipos' },
+  { id: 5, label: 'Jugadores', hint: 'Pestaña Jugadores' },
+  { id: 6, label: 'Fixture', hint: 'Pestaña Fixture' },
 ] as const
 
 const TeamLogo = ({
@@ -297,6 +402,11 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [newLeagueThemeColor, setNewLeagueThemeColor] = useState('')
   const [newLeagueBackgroundImageUrl, setNewLeagueBackgroundImageUrl] = useState('')
   const [newLeagueLogoUrl, setNewLeagueLogoUrl] = useState('')
+  const [newLeagueSocialInstagram, setNewLeagueSocialInstagram] = useState('')
+  const [newLeagueSocialFacebook, setNewLeagueSocialFacebook] = useState('')
+  const [newLeagueSocialTiktok, setNewLeagueSocialTiktok] = useState('')
+  const [newLeagueSocialYoutube, setNewLeagueSocialYoutube] = useState('')
+  const [newLeagueSocialX, setNewLeagueSocialX] = useState('')
   const [newLeagueCategoryKey, setNewLeagueCategoryKey] = useState(categoryTemplates[0]?.key ?? 'libre')
   const [teamDirectorDraft, setTeamDirectorDraft] = useState<TechnicalPersonDraft>({ name: '', photoUrl: '' })
   const [teamAssistantDraft, setTeamAssistantDraft] = useState<TechnicalPersonDraft>({ name: '', photoUrl: '' })
@@ -317,8 +427,16 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [playerSaveMsg, setPlayerSaveMsg] = useState<Record<string, { text: string; ok: boolean }>>({})
   const [playerEditById, setPlayerEditById] = useState<Record<string, PlayerDraft>>({})
   const [playerReplacementByTeam, setPlayerReplacementByTeam] = useState<Record<string, { enabled: boolean; replacePlayerId: string }>>({})
+  const [bulkImportPlayersByTeam, setBulkImportPlayersByTeam] = useState<Record<string, BulkImportPlayerDraft[]>>({})
+  const [bulkImportLoadingByTeam, setBulkImportLoadingByTeam] = useState<Record<string, boolean>>({})
+  const [bulkImportSavingByTeam, setBulkImportSavingByTeam] = useState<Record<string, boolean>>({})
+  const [bulkImportFileNameByTeam, setBulkImportFileNameByTeam] = useState<Record<string, string>>({})
 
   const [loading, setLoading] = useState(false)
+  const [creatingLeague, setCreatingLeague] = useState(false)
+  const [leagueCreationFeedback, setLeagueCreationFeedback] = useState<LeagueCreationFeedback | null>(null)
+  const [confirmLoading, setConfirmLoading] = useState(false)
+  const [savingLeagueId, setSavingLeagueId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
   const [fixture, setFixture] = useState<FixtureResponse | null>(null)
@@ -363,6 +481,33 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
   const [videoFormByMatch, setVideoFormByMatch] = useState<Record<string, { file: File | null; name: string; url: string; mode: 'file' | 'url' }>>({})
   const [videoUploadingByMatch, setVideoUploadingByMatch] = useState<Record<string, boolean>>({})
+  const teamsRequestSeqRef = useRef(0)
+  const fixtureRequestSeqRef = useRef(0)
+
+  // --- Estado pestaña Categorías ---
+  const [catNameDraft, setCatNameDraft] = useState('')
+  const [catMinAgeDraft, setCatMinAgeDraft] = useState(18)
+  const [catMaxAgeDraft, setCatMaxAgeDraft] = useState<number | null>(null)
+  const [catEditId, setCatEditId] = useState<string | null>(null)
+  const [catSaving, setCatSaving] = useState(false)
+  const [catMsg, setCatMsg] = useState<{ text: string; ok: boolean } | null>(null)
+  const [catConfirmDeleteId, setCatConfirmDeleteId] = useState<string | null>(null)
+
+  // --- Estado pestaña Configuración (self-contained) ---
+  const [cfgSettingsDraft, setCfgSettingsDraft] = useState({
+    playersOnField: 11, matchMinutes: 90, breakMinutes: 15,
+  })
+  const [cfgRulesDraft, setCfgRulesDraft] = useState({
+    allowDraws: true, pointsWin: 3, pointsDraw: 1, pointsLoss: 0,
+    resolveDrawByPenalties: false, playoffQualifiedTeams: 8, playoffHomeAway: false,
+    finalStageRoundOf16Enabled: false, finalStageRoundOf8Enabled: false,
+    finalStageQuarterFinalsEnabled: true, finalStageSemiFinalsEnabled: true, finalStageFinalEnabled: true,
+    finalStageTwoLegged: false, finalStageRoundOf16TwoLegged: false, finalStageRoundOf8TwoLegged: false,
+    finalStageQuarterFinalsTwoLegged: false, finalStageSemiFinalsTwoLegged: false, finalStageFinalTwoLegged: false,
+    doubleRoundRobin: false, regularSeasonRounds: 9, courtsCount: 1, maxRegisteredPlayers: 25,
+  })
+  const [cfgSaving, setCfgSaving] = useState(false)
+  const [cfgMsg, setCfgMsg] = useState<{ text: string; ok: boolean } | null>(null)
 
 
   const categoryOptions = useMemo(() => selectedLeague?.categories ?? [], [selectedLeague])
@@ -372,6 +517,40 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       : (categoryOptions[0]?.id ?? '')
 
   const activeCategoryRules = categoryOptions.find((category) => category.id === activeCategoryId)?.rules
+
+  // Sincroniza cfgSettingsDraft y cfgRulesDraft cuando cambia la categoría activa
+  useEffect(() => {
+    if (!activeCategoryRules) return
+    setCfgSettingsDraft({
+      playersOnField: activeCategoryRules.playersOnField ?? 11,
+      matchMinutes: activeCategoryRules.matchMinutes ?? 90,
+      breakMinutes: activeCategoryRules.breakMinutes ?? 15,
+    })
+    setCfgRulesDraft({
+      allowDraws: activeCategoryRules.allowDraws ?? true,
+      pointsWin: activeCategoryRules.pointsWin ?? 3,
+      pointsDraw: activeCategoryRules.pointsDraw ?? 1,
+      pointsLoss: activeCategoryRules.pointsLoss ?? 0,
+      resolveDrawByPenalties: activeCategoryRules.resolveDrawByPenalties ?? false,
+      playoffQualifiedTeams: activeCategoryRules.playoffQualifiedTeams ?? 8,
+      playoffHomeAway: activeCategoryRules.playoffHomeAway ?? false,
+      finalStageRoundOf16Enabled: activeCategoryRules.finalStageRoundOf16Enabled ?? false,
+      finalStageRoundOf8Enabled: activeCategoryRules.finalStageRoundOf8Enabled ?? false,
+      finalStageQuarterFinalsEnabled: activeCategoryRules.finalStageQuarterFinalsEnabled ?? true,
+      finalStageSemiFinalsEnabled: activeCategoryRules.finalStageSemiFinalsEnabled ?? true,
+      finalStageFinalEnabled: activeCategoryRules.finalStageFinalEnabled ?? true,
+      finalStageTwoLegged: activeCategoryRules.finalStageTwoLegged ?? false,
+      finalStageRoundOf16TwoLegged: activeCategoryRules.finalStageRoundOf16TwoLegged ?? false,
+      finalStageRoundOf8TwoLegged: activeCategoryRules.finalStageRoundOf8TwoLegged ?? false,
+      finalStageQuarterFinalsTwoLegged: activeCategoryRules.finalStageQuarterFinalsTwoLegged ?? false,
+      finalStageSemiFinalsTwoLegged: activeCategoryRules.finalStageSemiFinalsTwoLegged ?? false,
+      finalStageFinalTwoLegged: activeCategoryRules.finalStageFinalTwoLegged ?? false,
+      doubleRoundRobin: activeCategoryRules.doubleRoundRobin ?? false,
+      regularSeasonRounds: activeCategoryRules.regularSeasonRounds ?? 9,
+      courtsCount: activeCategoryRules.courtsCount ?? 1,
+      maxRegisteredPlayers: activeCategoryRules.maxRegisteredPlayers ?? 25,
+    })
+  }, [activeCategoryId]) // eslint-disable-line react-hooks/exhaustive-deps
   const activeCategoryCourtsCount = Math.max(1, activeCategoryRules?.courtsCount ?? 1)
   const activeCategoryMaxRegisteredPlayers = Math.max(5, activeCategoryRules?.maxRegisteredPlayers ?? 25)
 
@@ -424,8 +603,10 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     ) {
       return
     }
+    const requestSeq = ++teamsRequestSeqRef.current
     lastRequestRef.current = { leagueId: selectedLeague.id, categoryId: activeCategoryId }
     const response = await apiService.getLeagueTeams(selectedLeague.id, activeCategoryId)
+    if (requestSeq !== teamsRequestSeqRef.current) return
     if (response.ok) {
       setTeams(response.data)
     } else {
@@ -451,6 +632,8 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       return
     }
 
+    const requestSeq = ++fixtureRequestSeqRef.current
+
     const [fixtureResponse, scheduleResponse, roundAwardsResponse, rankingResponse, playedResponse] = await Promise.all([
       apiService.getLeagueFixture(selectedLeague.id, activeCategoryId),
       apiService.getFixtureSchedule(selectedLeague.id, activeCategoryId),
@@ -458,6 +641,8 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       apiService.getRoundAwardsRanking(selectedLeague.id, activeCategoryId),
       apiService.getPlayedMatches(selectedLeague.id, activeCategoryId),
     ])
+
+    if (requestSeq !== fixtureRequestSeqRef.current) return
 
     if (fixtureResponse.ok) {
       setFixture(fixtureResponse.data)
@@ -519,56 +704,102 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   }, [loadFixture])
 
   const handleCreateLeague = async () => {
+    if (creatingLeague) return
+
     const name = newLeagueName.trim()
     const categoryTemplate = categoryTemplates.find((item) => item.key === newLeagueCategoryKey)
     if (!name || !categoryTemplate) return
 
     const slug = buildSlug(name)
 
-    const response = await apiService.createLeague({
-      name,
-      slug,
-      country: newLeagueCountry.trim() || 'Ecuador',
-      season: newLeagueSeason,
-      slogan: newLeagueSlogan.trim() || undefined,
-      themeColor: newLeagueThemeColor.trim() || undefined,
-      backgroundImageUrl: newLeagueBackgroundImageUrl || undefined,
-      logoUrl: newLeagueLogoUrl || undefined,
-      categories: [
-        {
-          name: categoryTemplate.name,
-          minAge: categoryTemplate.minAge,
-          maxAge: categoryTemplate.maxAge,
-          rules: {
-            playersOnField: 11,
-            maxRegisteredPlayers: 25,
-            matchMinutes: categoryTemplate.matchMinutes,
-            breakMinutes: 15,
-            allowDraws: true,
-            pointsWin: 3,
-            pointsDraw: 1,
-            pointsLoss: 0,
-            courtsCount: 1,
-          },
-        },
-      ],
+    setCreatingLeague(true)
+    setLeagueCreationFeedback({
+      tone: 'progress',
+      title: 'Creando liga...',
+      detail: `Estamos guardando "${name}" en el servidor. Este paso puede tardar unos segundos si el backend está lento.`,
     })
 
-    if (!response.ok) {
-      showMessage(response.message)
-      return
-    }
+    try {
+      const response = await apiService.createLeague({
+        name,
+        slug,
+        country: newLeagueCountry.trim() || 'Ecuador',
+        season: newLeagueSeason,
+        slogan: newLeagueSlogan.trim() || undefined,
+        themeColor: newLeagueThemeColor.trim() || undefined,
+        backgroundImageUrl: newLeagueBackgroundImageUrl || undefined,
+        logoUrl: newLeagueLogoUrl || undefined,
+        socialLinks: {
+          instagram: newLeagueSocialInstagram.trim() || undefined,
+          facebook: newLeagueSocialFacebook.trim() || undefined,
+          tiktok: newLeagueSocialTiktok.trim() || undefined,
+          youtube: newLeagueSocialYoutube.trim() || undefined,
+          x: newLeagueSocialX.trim() || undefined,
+        },
+        categories: [
+          {
+            name: categoryTemplate.name,
+            minAge: categoryTemplate.minAge,
+            maxAge: categoryTemplate.maxAge,
+            rules: {
+              playersOnField: 11,
+              maxRegisteredPlayers: 25,
+              matchMinutes: categoryTemplate.matchMinutes,
+              breakMinutes: 15,
+              allowDraws: true,
+              pointsWin: 3,
+              pointsDraw: 1,
+              pointsLoss: 0,
+              courtsCount: 1,
+            },
+          },
+        ],
+      })
 
-    setNewLeagueName('')
-    setNewLeagueBackgroundImageUrl('')
-    setNewLeagueLogoUrl('')
-    setNewLeagueSeason(2026)
-    setNewLeagueSlogan('')
-    setNewLeagueThemeColor('')
-    showMessage('Liga creada correctamente')
-    await onLeaguesReload()
-    onLeagueSelect(response.data.id)
-    setTab('equipos')
+      if (!response.ok) {
+        setLeagueCreationFeedback({
+          tone: 'error',
+          title: 'No se pudo crear la liga',
+          detail: response.message,
+        })
+        showMessage(response.message)
+        return
+      }
+
+      setLeagueCreationFeedback({
+        tone: 'progress',
+        title: `Liga "${response.data.name}" creada`,
+        detail: 'Ahora estamos actualizando el listado y seleccionando la nueva liga automáticamente.',
+      })
+
+      setNewLeagueName('')
+      setNewLeagueCountry('Ecuador')
+      setNewLeagueBackgroundImageUrl('')
+      setNewLeagueLogoUrl('')
+      setNewLeagueSocialInstagram('')
+      setNewLeagueSocialFacebook('')
+      setNewLeagueSocialTiktok('')
+      setNewLeagueSocialYoutube('')
+      setNewLeagueSocialX('')
+      setNewLeagueSeason(2026)
+      setNewLeagueSlogan('')
+      setNewLeagueThemeColor('')
+      setNewLeagueCategoryKey(categoryTemplates[0]?.key ?? 'libre')
+      setLeagueSearch('')
+      setLeaguePage(1)
+
+      await onLeaguesReload()
+      onLeagueSelect(response.data.id)
+      setLeagueCreationFeedback({
+        tone: 'success',
+        title: `Liga "${response.data.name}" lista`,
+        detail: 'La creación terminó correctamente. Ya puedes seguir con categorías, configuración o equipos.',
+      })
+      showMessage(`Liga "${response.data.name}" creada correctamente`)
+      setTab('equipos')
+    } finally {
+      setCreatingLeague(false)
+    }
   }
 
   const handleCreateTeam = async () => {
@@ -1971,6 +2202,183 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     }
   }
 
+  const applyAddPlayerResponseToTeamState = (teamId: string, payload: unknown) => {
+    setTeams((current) => current.map((team) => {
+      if (team.id !== teamId) return team
+
+      if (payload && typeof payload === 'object' && Array.isArray((payload as RegisteredTeam).players)) {
+        return payload as RegisteredTeam
+      }
+
+      if (payload && typeof payload === 'object') {
+        const createdPlayer = payload as RegisteredTeam['players'][number]
+        if (team.players.some((player) => player.id === createdPlayer.id)) {
+          return team
+        }
+        return { ...team, players: [...team.players, createdPlayer] }
+      }
+
+      return team
+    }))
+  }
+
+  const handleImportPlayersExcel = async (teamId: string, file: File) => {
+    if (isReadOnlySeason) {
+      showMessage('Temporada histórica: solo lectura')
+      return
+    }
+
+    const targetTeam = teams.find((item) => item.id === teamId)
+    if (!targetTeam) {
+      showMessage('Equipo no encontrado para importación')
+      return
+    }
+
+    setBulkImportLoadingByTeam((current) => ({ ...current, [teamId]: true }))
+
+    try {
+      const buffer = await file.arrayBuffer()
+      const workbook = XLSX.read(buffer, { type: 'array' })
+      const firstSheetName = workbook.SheetNames[0]
+      if (!firstSheetName) {
+        showMessage('El archivo no contiene hojas válidas')
+        return
+      }
+
+      const sheet = workbook.Sheets[firstSheetName]
+      if (!sheet) {
+        showMessage('No se pudo leer la hoja principal')
+        return
+      }
+
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown[][]
+      const existingNumbers = new Set(targetTeam.players.map((player) => player.number))
+      const parsedRows = parseExcelPlayers(rows, existingNumbers)
+
+      if (parsedRows.length === 0) {
+        showMessage('No se encontraron filas válidas en el Excel')
+        return
+      }
+
+      setBulkImportPlayersByTeam((current) => ({ ...current, [teamId]: parsedRows }))
+      setBulkImportFileNameByTeam((current) => ({ ...current, [teamId]: file.name }))
+
+      const invalidCount = parsedRows.filter((row) => row.error).length
+      showMessage(`Pre-carga lista: ${parsedRows.length} jugador(es)${invalidCount ? ` · ${invalidCount} con observación` : ''}`)
+    } catch {
+      showMessage('No se pudo leer el archivo Excel')
+    } finally {
+      setBulkImportLoadingByTeam((current) => ({ ...current, [teamId]: false }))
+    }
+  }
+
+  const updateBulkImportRow = (
+    teamId: string,
+    rowId: string,
+    patch: Partial<Pick<BulkImportPlayerDraft, 'name' | 'nickname' | 'age' | 'number' | 'position'>>,
+  ) => {
+    setBulkImportPlayersByTeam((current) => ({
+      ...current,
+      [teamId]: (current[teamId] ?? []).map((row) => {
+        if (row.id !== rowId) return row
+        const next = { ...row, ...patch }
+        const ageValue = Number.parseInt(next.age, 10)
+        let error = ''
+        if (!next.name.trim()) {
+          error = 'Falta nombre'
+        } else if (!Number.isFinite(ageValue) || ageValue < 5 || ageValue > 99) {
+          error = 'Edad inválida (5-99)'
+        }
+        return { ...next, ...(error ? { error } : { error: undefined }) }
+      }),
+    }))
+  }
+
+  const removeBulkImportRow = (teamId: string, rowId: string) => {
+    setBulkImportPlayersByTeam((current) => ({
+      ...current,
+      [teamId]: (current[teamId] ?? []).filter((row) => row.id !== rowId),
+    }))
+  }
+
+  const handleSaveBulkImportedPlayers = async (teamId: string) => {
+    if (isReadOnlySeason) {
+      showMessage('Temporada histórica: solo lectura')
+      return
+    }
+
+    const rows = bulkImportPlayersByTeam[teamId] ?? []
+    if (rows.length === 0) {
+      showMessage('No hay filas precargadas para guardar')
+      return
+    }
+
+    const targetTeam = teams.find((item) => item.id === teamId)
+    if (!targetTeam) {
+      showMessage('Equipo no encontrado para guardado masivo')
+      return
+    }
+
+    setBulkImportSavingByTeam((current) => ({ ...current, [teamId]: true }))
+
+    const usedNumbers = new Set(targetTeam.players.map((player) => player.number))
+    const failedRows: BulkImportPlayerDraft[] = []
+    let savedCount = 0
+
+    for (const row of rows) {
+      const name = row.name.trim()
+      const age = Number.parseInt(row.age, 10)
+      const nickname = row.nickname.trim() || getNicknameFromName(name)
+      const position = normalizePosition(row.position)
+
+      if (!name) {
+        failedRows.push({ ...row, error: 'Falta nombre' })
+        continue
+      }
+
+      if (!Number.isFinite(age) || age < 5 || age > 99) {
+        failedRows.push({ ...row, error: 'Edad inválida (5-99)' })
+        continue
+      }
+
+      let dorsal = Number.parseInt(row.number, 10)
+      if (!Number.isFinite(dorsal) || dorsal <= 0 || usedNumbers.has(dorsal)) {
+        dorsal = pickRandomDorsal(usedNumbers)
+      }
+      usedNumbers.add(dorsal)
+
+      const response = await apiService.addPlayerToTeam(teamId, {
+        name,
+        nickname,
+        age,
+        number: dorsal,
+        position,
+        registrationStatus: 'pending',
+      })
+
+      if (!response.ok) {
+        failedRows.push({ ...row, number: String(dorsal), error: response.message || 'No se pudo guardar' })
+        continue
+      }
+
+      applyAddPlayerResponseToTeamState(teamId, response.data)
+      savedCount += 1
+    }
+
+    setBulkImportPlayersByTeam((current) => ({ ...current, [teamId]: failedRows }))
+    setPlayerPage(1)
+
+    if (savedCount > 0 && failedRows.length === 0) {
+      showMessage(`Guardado masivo completado: ${savedCount} jugador(es)`)
+    } else if (savedCount > 0 && failedRows.length > 0) {
+      showMessage(`Guardado parcial: ${savedCount} OK · ${failedRows.length} pendiente(s)`)
+    } else {
+      showMessage('No se pudo guardar ninguna fila. Revisa la pre-carga.')
+    }
+
+    setBulkImportSavingByTeam((current) => ({ ...current, [teamId]: false }))
+  }
+
   const handleAddPlayer = async (teamId: string) => {
     if (isReadOnlySeason) {
       showMessage('Temporada histórica: solo lectura')
@@ -2028,31 +2436,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       [teamId]: { enabled: false, replacePlayerId: '' },
     }))
     showMessage(replacementConfig.enabled ? 'Reemplazo por lesión registrado' : 'Jugador agregado')
-    setTeams((current) => current.map((t) => {
-      if (t.id !== teamId) return t
-
-      const payload = response.data as unknown
-
-      if (
-        payload &&
-        typeof payload === 'object' &&
-        Array.isArray((payload as RegisteredTeam).players)
-      ) {
-        return payload as RegisteredTeam
-      }
-
-      if (payload && typeof payload === 'object') {
-        const createdPlayer = payload as RegisteredTeam['players'][number]
-        const playerAlreadyExists = t.players.some((player) => player.id === createdPlayer.id)
-        if (playerAlreadyExists) {
-          return t
-        }
-
-        return { ...t, players: [...t.players, createdPlayer] }
-      }
-
-      return t
-    }))
+    applyAddPlayerResponseToTeamState(teamId, response.data)
     setPlayerPage(1)
   }
 
@@ -2248,9 +2632,8 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     setTeams((current) => current.map((t) => t.id === teamId ? response.data : t))
   }
 
-  const requestDeleteLeague = () => {
-    if (!selectedLeague) return
-    setConfirmAction({ type: 'delete-league', leagueId: selectedLeague.id, label: selectedLeague.name })
+  const requestDeleteLeagueByCard = (league: League) => {
+    setConfirmAction({ type: 'delete-league', leagueId: league.id, label: league.name })
   }
 
   const requestDeleteTeam = (team: RegisteredTeam) => {
@@ -2282,6 +2665,11 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
         themeColor: current[league.id]?.themeColor ?? league.themeColor ?? '',
         backgroundImageUrl: current[league.id]?.backgroundImageUrl ?? league.backgroundImageUrl ?? '',
         logoUrl: current[league.id]?.logoUrl ?? league.logoUrl ?? '',
+        socialInstagram: current[league.id]?.socialInstagram ?? league.socialLinks?.instagram ?? '',
+        socialFacebook: current[league.id]?.socialFacebook ?? league.socialLinks?.facebook ?? '',
+        socialTiktok: current[league.id]?.socialTiktok ?? league.socialLinks?.tiktok ?? '',
+        socialYoutube: current[league.id]?.socialYoutube ?? league.socialLinks?.youtube ?? '',
+        socialX: current[league.id]?.socialX ?? league.socialLinks?.x ?? '',
         ...patch,
       },
     }))
@@ -2290,69 +2678,92 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const saveLeagueEdit = async (league: League) => {
     const draft = leagueEditById[league.id]
     if (!draft) return
+    if (savingLeagueId === league.id) return
 
-    const response = await apiService.updateLeague(league.id, {
-      name: draft.name.trim(),
-      slug: buildSlug(draft.name.trim()),
-      country: draft.country.trim(),
-      season: draft.season,
-      slogan: draft.slogan.trim() || '',
-      themeColor: draft.themeColor.trim() || undefined,
-      backgroundImageUrl: draft.backgroundImageUrl || undefined,
-      logoUrl: draft.logoUrl || undefined,
-    })
+    setSavingLeagueId(league.id)
+    try {
+      const response = await apiService.updateLeague(league.id, {
+        name: draft.name.trim(),
+        slug: buildSlug(draft.name.trim()),
+        country: draft.country.trim(),
+        season: draft.season,
+        slogan: draft.slogan.trim() || '',
+        themeColor: draft.themeColor.trim() || undefined,
+        backgroundImageUrl: draft.backgroundImageUrl || undefined,
+        logoUrl: draft.logoUrl || undefined,
+        socialLinks: {
+          instagram: draft.socialInstagram.trim() || undefined,
+          facebook: draft.socialFacebook.trim() || undefined,
+          tiktok: draft.socialTiktok.trim() || undefined,
+          youtube: draft.socialYoutube.trim() || undefined,
+          x: draft.socialX.trim() || undefined,
+        },
+      })
 
-    if (!response.ok) {
-      showMessage(response.message)
-      return
+      if (!response.ok) {
+        showMessage(response.message)
+        return
+      }
+
+      await onLeaguesReload()
+      onLeagueSelect(response.data.id)
+      showMessage('✓ Liga actualizada correctamente')
+    } finally {
+      setSavingLeagueId(null)
     }
-
-    showMessage('Liga actualizada')
-    await onLeaguesReload()
-    onLeagueSelect(response.data.id)
   }
 
   const executeConfirm = async () => {
-    if (!confirmAction) return
+    if (!confirmAction || confirmLoading) return
 
-    if (confirmAction.type === 'delete-league') {
-      const response = await apiService.deleteLeague(confirmAction.leagueId)
+    setConfirmLoading(true)
+    try {
+      if (confirmAction.type === 'delete-league') {
+        const deletingLeagueId = confirmAction.leagueId
+        const fallbackLeagueId = leagues.find((league) => league.id !== deletingLeagueId)?.id ?? ''
+        const response = await apiService.deleteLeague(deletingLeagueId)
+        if (!response.ok) {
+          showMessage(response.message)
+          setConfirmAction(null)
+          return
+        }
+
+        showMessage('Liga eliminada')
+        await onLeaguesReload()
+        if (selectedLeague?.id === deletingLeagueId && fallbackLeagueId) {
+          onLeagueSelect(fallbackLeagueId)
+        }
+        setConfirmAction(null)
+        return
+      }
+
+      if (confirmAction.type === 'delete-team') {
+        const response = await apiService.deleteTeam(confirmAction.teamId)
+        if (!response.ok) {
+          showMessage(response.message)
+          setConfirmAction(null)
+          return
+        }
+
+        showMessage('Equipo eliminado')
+        await loadTeams()
+        setConfirmAction(null)
+        return
+      }
+
+      const response = await apiService.deletePlayer(confirmAction.teamId, confirmAction.playerId)
       if (!response.ok) {
         showMessage(response.message)
         setConfirmAction(null)
         return
       }
 
-      showMessage('Liga eliminada')
-      await onLeaguesReload()
-      setConfirmAction(null)
-      return
-    }
-
-    if (confirmAction.type === 'delete-team') {
-      const response = await apiService.deleteTeam(confirmAction.teamId)
-      if (!response.ok) {
-        showMessage(response.message)
-        setConfirmAction(null)
-        return
-      }
-
-      showMessage('Equipo eliminado')
+      showMessage('Jugador eliminado')
       await loadTeams()
       setConfirmAction(null)
-      return
+    } finally {
+      setConfirmLoading(false)
     }
-
-    const response = await apiService.deletePlayer(confirmAction.teamId, confirmAction.playerId)
-    if (!response.ok) {
-      showMessage(response.message)
-      setConfirmAction(null)
-      return
-    }
-
-    showMessage('Jugador eliminado')
-    await loadTeams()
-    setConfirmAction(null)
   }
 
   const confirmTitle =
@@ -2367,13 +2778,17 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const activeFlowStep =
     tab === 'ligas'
       ? 1
-      : tab === 'equipos'
-        ? 3
-        : tab === 'jugadores' || tab === 'carnet'
-          ? 4
-          : tab === 'fixture' || tab === 'mvp'
-            ? 5
-            : 1
+      : tab === 'categorias'
+        ? 2
+        : tab === 'configuracion'
+          ? 3
+          : tab === 'equipos'
+            ? 4
+            : tab === 'jugadores' || tab === 'carnet'
+              ? 5
+              : tab === 'fixture' || tab === 'mvp'
+                ? 6
+                : 1
 
   return (
     <section className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-3 md:p-5">
@@ -2384,6 +2799,8 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
         {([
           { id: 'ligas', label: 'Ligas' },
+          { id: 'categorias', label: 'Categorías' },
+          { id: 'configuracion', label: 'Configuración' },
           { id: 'equipos', label: 'Equipos' },
           { id: 'jugadores', label: 'Jugadores' },
           { id: 'carnet', label: 'Carnet' },
@@ -2434,43 +2851,441 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
       {message && <p className="mt-3 rounded border border-primary-300/30 bg-primary-500/10 px-3 py-2 text-sm text-primary-100">{message}</p>}
 
+      {tab === 'categorias' && (
+        <div className="mt-4 rounded-xl border border-white/10 bg-slate-900/60 p-4">
+          {!selectedLeague && (
+            <p className="text-sm text-slate-400">Selecciona una liga para gestionar sus categorías.</p>
+          )}
+          {selectedLeague && (
+            <>
+              <p className="text-sm font-semibold text-white">Categorías de {selectedLeague.name}</p>
+              <p className="mt-1 text-xs text-slate-400">Define los rangos de edad de cada división. La configuración de reglas se hace en la pestaña Configuración.</p>
+
+              {catMsg && (
+                <p className={`mt-2 rounded border px-3 py-2 text-sm ${catMsg.ok ? 'border-emerald-300/30 bg-emerald-500/10 text-emerald-100' : 'border-rose-300/30 bg-rose-500/10 text-rose-200'}`}>{catMsg.text}</p>
+              )}
+
+              <div className="mt-4 space-y-2">
+                {categoryOptions.map((cat) => (
+                  <div key={cat.id} className="flex flex-wrap items-center gap-2 rounded border border-white/10 bg-slate-800/60 px-3 py-2">
+                    {catEditId === cat.id ? (
+                      <>
+                        <input
+                          className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-sm text-white"
+                          value={catNameDraft}
+                          onChange={(e) => setCatNameDraft(e.target.value)}
+                          placeholder="Nombre"
+                        />
+                        <input
+                          type="number" min={5}
+                          className="w-20 rounded border border-white/20 bg-slate-900 px-2 py-1 text-sm text-white"
+                          value={catMinAgeDraft}
+                          onChange={(e) => setCatMinAgeDraft(Number(e.target.value))}
+                          placeholder="Edad mín"
+                        />
+                        <input
+                          type="number" min={5}
+                          className="w-20 rounded border border-white/20 bg-slate-900 px-2 py-1 text-sm text-white"
+                          value={catMaxAgeDraft ?? ''}
+                          onChange={(e) => setCatMaxAgeDraft(e.target.value === '' ? null : Number(e.target.value))}
+                          placeholder="Edad máx"
+                        />
+                        <span className="text-[11px] text-slate-400">máx vacío = sin límite</span>
+                        <button
+                          type="button"
+                          disabled={catSaving}
+                          onClick={async () => {
+                            if (!catNameDraft.trim()) { setCatMsg({ text: 'Ingresa un nombre', ok: false }); return }
+                            setCatSaving(true)
+                            const res = await apiService.updateCategory(selectedLeague.id, cat.id, {
+                              name: catNameDraft.trim(),
+                              minAge: catMinAgeDraft,
+                              maxAge: catMaxAgeDraft,
+                            })
+                            setCatSaving(false)
+                            if (res.ok) {
+                              setCatMsg({ text: 'Categoría actualizada', ok: true })
+                              setCatEditId(null)
+                              await onLeaguesReload()
+                            } else {
+                              setCatMsg({ text: res.message ?? 'Error al actualizar', ok: false })
+                            }
+                          }}
+                          className="rounded border border-emerald-300/40 bg-emerald-500/20 px-2 py-1 text-xs font-semibold text-emerald-100 disabled:opacity-60"
+                        >
+                          Guardar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCatEditId(null)}
+                          className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-300"
+                        >
+                          Cancelar
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="flex-1 text-sm font-semibold text-white">{cat.name}</span>
+                        <span className="text-xs text-slate-400">
+                          {cat.minAge} – {cat.maxAge != null ? cat.maxAge : '∞'} años
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCatEditId(cat.id)
+                            setCatNameDraft(cat.name)
+                            setCatMinAgeDraft(cat.minAge)
+                            setCatMaxAgeDraft(cat.maxAge)
+                            setCatMsg(null)
+                          }}
+                          className="rounded border border-white/20 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                        >
+                          Editar
+                        </button>
+                        {catConfirmDeleteId === cat.id ? (
+                          <>
+                            <span className="text-xs text-rose-300">¿Eliminar?</span>
+                            <button
+                              type="button"
+                              disabled={catSaving}
+                              onClick={async () => {
+                                setCatSaving(true)
+                                const res = await apiService.deleteCategory(selectedLeague.id, cat.id)
+                                setCatSaving(false)
+                                setCatConfirmDeleteId(null)
+                                if (res.ok) {
+                                  setCatMsg({ text: 'Categoría eliminada', ok: true })
+                                  await onLeaguesReload()
+                                } else {
+                                  setCatMsg({ text: res.message ?? 'No se pudo eliminar', ok: false })
+                                }
+                              }}
+                              className="rounded border border-rose-400/40 bg-rose-500/20 px-2 py-1 text-xs font-semibold text-rose-200 disabled:opacity-60"
+                            >
+                              Confirmar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCatConfirmDeleteId(null)}
+                              className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-300"
+                            >
+                              No
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setCatConfirmDeleteId(cat.id); setCatMsg(null) }}
+                            className="rounded border border-rose-300/30 bg-rose-500/10 px-2 py-1 text-xs text-rose-300"
+                          >
+                            Eliminar
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 rounded border border-primary-300/20 bg-primary-500/10 p-3">
+                <p className="text-xs font-semibold text-primary-100">Nueva categoría</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <input
+                    className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-sm text-white"
+                    placeholder="Nombre (ej: Sub-20)"
+                    value={catEditId ? '' : catNameDraft}
+                    onChange={(e) => { setCatEditId(null); setCatNameDraft(e.target.value) }}
+                  />
+                  <input
+                    type="number" min={5}
+                    className="w-24 rounded border border-white/20 bg-slate-900 px-2 py-1 text-sm text-white"
+                    placeholder="Edad mín"
+                    value={catEditId ? '' : catMinAgeDraft}
+                    onChange={(e) => { setCatEditId(null); setCatMinAgeDraft(Number(e.target.value)) }}
+                  />
+                  <input
+                    type="number" min={5}
+                    className="w-24 rounded border border-white/20 bg-slate-900 px-2 py-1 text-sm text-white"
+                    placeholder="Edad máx (vacío=∞)"
+                    value={catEditId ? '' : (catMaxAgeDraft ?? '')}
+                    onChange={(e) => { setCatEditId(null); setCatMaxAgeDraft(e.target.value === '' ? null : Number(e.target.value)) }}
+                  />
+                  <button
+                    type="button"
+                    disabled={catSaving || !!catEditId}
+                    onClick={async () => {
+                      if (!catNameDraft.trim()) { setCatMsg({ text: 'Ingresa un nombre para la categoría', ok: false }); return }
+                      setCatSaving(true)
+                      const res = await apiService.createCategory(selectedLeague.id, {
+                        name: catNameDraft.trim(),
+                        minAge: catMinAgeDraft,
+                        maxAge: catMaxAgeDraft,
+                      })
+                      setCatSaving(false)
+                      if (res.ok) {
+                        setCatMsg({ text: `Categoría "${res.data.name}" creada`, ok: true })
+                        setCatNameDraft('')
+                        setCatMinAgeDraft(18)
+                        setCatMaxAgeDraft(null)
+                        await onLeaguesReload()
+                      } else {
+                        setCatMsg({ text: res.message ?? 'Error al crear categoría', ok: false })
+                      }
+                    }}
+                    className="rounded-lg border border-primary-300/50 bg-primary-500/20 px-4 py-1.5 text-sm font-semibold text-primary-100 hover:bg-primary-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {catSaving ? 'Guardando...' : 'Crear categoría'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === 'configuracion' && (
+        <div className="mt-4 rounded-xl border border-white/10 bg-slate-900/60 p-4">
+          {!selectedLeague && (
+            <p className="text-sm text-slate-400">Selecciona una liga para configurar el campeonato.</p>
+          )}
+          {selectedLeague && (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">Configuración del campeonato</p>
+                  <p className="text-xs text-slate-400">Esta configuración aplica para la categoría seleccionada.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-300">Categoría</span>
+                  <select
+                    value={selectedCategoryId}
+                    onChange={(e) => setSelectedCategoryId(e.target.value)}
+                    className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-sm text-white"
+                  >
+                    {categoryOptions.map((cat) => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {cfgMsg && (
+                <p className={`mt-2 rounded border px-3 py-2 text-sm ${cfgMsg.ok ? 'border-emerald-300/30 bg-emerald-500/10 text-emerald-100' : 'border-rose-300/30 bg-rose-500/10 text-rose-200'}`}>{cfgMsg.text}</p>
+              )}
+
+              <div className="mt-3 rounded border border-white/10 bg-slate-800/40 p-3">
+                <p className="text-xs font-semibold text-white mb-2">Partido</p>
+                <div className="grid gap-2 md:grid-cols-3">
+                  <label className="text-xs text-slate-300">Jugadores en cancha
+                    <input type="number" min={5} max={11} value={cfgSettingsDraft.playersOnField}
+                      onChange={(e) => setCfgSettingsDraft((c) => ({ ...c, playersOnField: Number(e.target.value) || 5 }))}
+                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white" />
+                  </label>
+                  <label className="text-xs text-slate-300">Minutos de juego
+                    <input type="number" min={20} max={120} value={cfgSettingsDraft.matchMinutes}
+                      onChange={(e) => setCfgSettingsDraft((c) => ({ ...c, matchMinutes: Number(e.target.value) || 20 }))}
+                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white" />
+                  </label>
+                  <label className="text-xs text-slate-300">Descanso (min)
+                    <input type="number" min={0} max={30} value={cfgSettingsDraft.breakMinutes}
+                      onChange={(e) => setCfgSettingsDraft((c) => ({ ...c, breakMinutes: Number(e.target.value) || 0 }))}
+                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white" />
+                  </label>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded border border-white/10 bg-slate-800/40 p-3">
+                <p className="text-xs font-semibold text-white mb-2">Puntos y tabla</p>
+                <div className="grid gap-2 md:grid-cols-4">
+                  <label className="text-xs text-slate-300">Puntos ganar
+                    <input type="number" min={0} max={10} value={cfgRulesDraft.pointsWin}
+                      onChange={(e) => setCfgRulesDraft((c) => ({ ...c, pointsWin: Number(e.target.value) || 0 }))}
+                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white" />
+                  </label>
+                  <label className="text-xs text-slate-300">Puntos empate
+                    <input type="number" min={0} max={10} value={cfgRulesDraft.pointsDraw}
+                      onChange={(e) => setCfgRulesDraft((c) => ({ ...c, pointsDraw: Number(e.target.value) || 0 }))}
+                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white" />
+                  </label>
+                  <label className="text-xs text-slate-300">Puntos perder
+                    <input type="number" min={0} max={10} value={cfgRulesDraft.pointsLoss}
+                      onChange={(e) => setCfgRulesDraft((c) => ({ ...c, pointsLoss: Number(e.target.value) || 0 }))}
+                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white" />
+                  </label>
+                  <label className="text-xs text-slate-300">Clasifican fase final
+                    <input type="number" min={2} max={32} value={cfgRulesDraft.playoffQualifiedTeams}
+                      onChange={(e) => setCfgRulesDraft((c) => ({ ...c, playoffQualifiedTeams: Number(e.target.value) || 2 }))}
+                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white" />
+                  </label>
+                </div>
+                <div className="mt-2 grid gap-2 md:grid-cols-3">
+                  <label className="text-xs text-slate-300">Fechas fase regular
+                    <input type="number" min={1} max={60} value={cfgRulesDraft.regularSeasonRounds}
+                      onChange={(e) => setCfgRulesDraft((c) => ({ ...c, regularSeasonRounds: Number(e.target.value) || 1 }))}
+                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white" />
+                  </label>
+                  <label className="text-xs text-slate-300">Número de canchas
+                    <input type="number" min={1} max={20} value={cfgRulesDraft.courtsCount}
+                      onChange={(e) => setCfgRulesDraft((c) => ({ ...c, courtsCount: Math.max(1, Number(e.target.value) || 1) }))}
+                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white" />
+                  </label>
+                  <label className="text-xs text-slate-300">Máx. jugadores inscritos
+                    <input type="number" min={5} max={60} value={cfgRulesDraft.maxRegisteredPlayers}
+                      onChange={(e) => setCfgRulesDraft((c) => ({ ...c, maxRegisteredPlayers: Math.max(5, Number(e.target.value) || 5) }))}
+                      className="mt-1 w-full rounded border border-white/20 bg-slate-800 px-2 py-1 text-white" />
+                  </label>
+                </div>
+                <div className="mt-2 grid gap-2 md:grid-cols-2">
+                  <label className="flex items-center gap-2 rounded border border-white/10 px-2 py-2 text-xs text-slate-200">
+                    <input type="checkbox" checked={cfgRulesDraft.allowDraws}
+                      onChange={(e) => setCfgRulesDraft((c) => ({ ...c, allowDraws: e.target.checked }))} />
+                    Permitir empate en tiempo regular
+                  </label>
+                  <label className="flex items-center gap-2 rounded border border-white/10 px-2 py-2 text-xs text-slate-200">
+                    <input type="checkbox" checked={cfgRulesDraft.doubleRoundRobin}
+                      onChange={(e) => setCfgRulesDraft((c) => ({ ...c, doubleRoundRobin: e.target.checked }))} />
+                    Liga ida y vuelta
+                  </label>
+                  <label className="flex items-center gap-2 rounded border border-white/10 px-2 py-2 text-xs text-slate-200">
+                    <input type="checkbox" checked={cfgRulesDraft.resolveDrawByPenalties}
+                      onChange={(e) => setCfgRulesDraft((c) => ({ ...c, resolveDrawByPenalties: e.target.checked }))} />
+                    Resolver empate con penales en fase final
+                  </label>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded border border-white/10 bg-slate-800/40 p-3">
+                <p className="text-xs font-semibold text-white mb-2">Fase final</p>
+                <div className="grid gap-2 md:grid-cols-3">
+                  {(
+                    [
+                      { key: 'finalStageRoundOf16Enabled', label: '16avos', twoLegKey: 'finalStageRoundOf16TwoLegged' },
+                      { key: 'finalStageRoundOf8Enabled', label: '8vos', twoLegKey: 'finalStageRoundOf8TwoLegged' },
+                      { key: 'finalStageQuarterFinalsEnabled', label: '4tos', twoLegKey: 'finalStageQuarterFinalsTwoLegged' },
+                      { key: 'finalStageSemiFinalsEnabled', label: 'Semis', twoLegKey: 'finalStageSemiFinalsTwoLegged' },
+                      { key: 'finalStageFinalEnabled', label: 'Final', twoLegKey: 'finalStageFinalTwoLegged' },
+                    ] as Array<{ key: keyof typeof cfgRulesDraft; label: string; twoLegKey: keyof typeof cfgRulesDraft }>
+                  ).map(({ key, label, twoLegKey }) => (
+                    <div key={key} className="rounded border border-white/10 px-2 py-2">
+                      <label className="flex items-center gap-2 text-xs text-slate-200">
+                        <input type="checkbox" checked={cfgRulesDraft[key] as boolean}
+                          onChange={(e) => setCfgRulesDraft((c) => ({ ...c, [key]: e.target.checked }))} />
+                        {label}
+                      </label>
+                      {cfgRulesDraft[key] && (
+                        <label className="mt-1 flex items-center gap-2 text-xs text-slate-400">
+                          <input type="checkbox" checked={cfgRulesDraft[twoLegKey] as boolean}
+                            onChange={(e) => setCfgRulesDraft((c) => ({ ...c, [twoLegKey]: e.target.checked }))} />
+                          Ida y vuelta
+                        </label>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <button
+                  type="button"
+                  disabled={cfgSaving || !activeCategoryId}
+                  onClick={async () => {
+                    if (!activeCategoryId) return
+                    setCfgSaving(true)
+                    const rules = { ...cfgSettingsDraft, ...cfgRulesDraft }
+                    const res = await apiService.updateCategoryRules(selectedLeague.id, activeCategoryId, rules)
+                    setCfgSaving(false)
+                    if (res.ok) {
+                      setCfgMsg({ text: 'Configuración guardada correctamente', ok: true })
+                      await onLeaguesReload()
+                    } else {
+                      setCfgMsg({ text: res.message ?? 'Error al guardar', ok: false })
+                    }
+                  }}
+                  className="rounded-lg border border-primary-300/50 bg-primary-500/20 px-4 py-2 text-sm font-semibold text-primary-100 hover:bg-primary-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {cfgSaving ? 'Guardando...' : 'Guardar configuración del campeonato'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {tab === 'ligas' && (
         <div className="mt-4 rounded-xl border border-white/10 bg-slate-900/60 p-4">
           <p className="text-sm font-semibold text-white">Crear liga</p>
           <p className="mt-1 text-xs text-slate-400">La nueva liga se crea con dueño Super Admin.</p>
+          {leagueCreationFeedback && (
+            <div
+              className={`mt-3 rounded-lg border px-3 py-2 ${
+                leagueCreationFeedback.tone === 'success'
+                  ? 'border-emerald-300/30 bg-emerald-500/10'
+                  : leagueCreationFeedback.tone === 'error'
+                    ? 'border-rose-300/30 bg-rose-500/10'
+                    : 'border-primary-300/30 bg-primary-500/10'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {leagueCreationFeedback.tone === 'progress' && <span className="h-2 w-2 rounded-full bg-primary-300 animate-pulse" />}
+                {leagueCreationFeedback.tone === 'success' && <span className="h-2 w-2 rounded-full bg-emerald-300" />}
+                {leagueCreationFeedback.tone === 'error' && <span className="h-2 w-2 rounded-full bg-rose-300" />}
+                <p
+                  className={`text-sm font-semibold ${
+                    leagueCreationFeedback.tone === 'success'
+                      ? 'text-emerald-100'
+                      : leagueCreationFeedback.tone === 'error'
+                        ? 'text-rose-100'
+                        : 'text-primary-100'
+                  }`}
+                >
+                  {leagueCreationFeedback.title}
+                </p>
+              </div>
+              <p className="mt-1 text-xs text-slate-300">{leagueCreationFeedback.detail}</p>
+            </div>
+          )}
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-12">
             <input
+              disabled={creatingLeague}
               value={newLeagueName}
-              onChange={(event) => setNewLeagueName(event.target.value)}
+              onChange={(event) => {
+                setNewLeagueName(event.target.value)
+                if (leagueCreationFeedback?.tone === 'error' || leagueCreationFeedback?.tone === 'success') {
+                  setLeagueCreationFeedback(null)
+                }
+              }}
               placeholder="Nombre de la liga"
-              className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white lg:col-span-2 xl:col-span-3"
+              className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white disabled:opacity-60 lg:col-span-2 xl:col-span-3"
             />
             <input
+              disabled={creatingLeague}
               value={newLeagueCountry}
               onChange={(event) => setNewLeagueCountry(event.target.value)}
               placeholder="País"
-              className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white lg:col-span-1 xl:col-span-2"
+              className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white disabled:opacity-60 lg:col-span-1 xl:col-span-2"
             />
             <input
+              disabled={creatingLeague}
               type="number"
               min={2020}
               max={2100}
               value={newLeagueSeason}
               onChange={(event) => setNewLeagueSeason(Number(event.target.value) || 2026)}
               placeholder="Temporada"
-              className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white lg:col-span-1 xl:col-span-1"
+              className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white disabled:opacity-60 lg:col-span-1 xl:col-span-1"
             />
             <input
+              disabled={creatingLeague}
               value={newLeagueSlogan}
               onChange={(event) => setNewLeagueSlogan(event.target.value)}
               placeholder="Slogan (opcional)"
-              className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white lg:col-span-2 xl:col-span-2"
+              className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white disabled:opacity-60 lg:col-span-2 xl:col-span-2"
             />
             <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-slate-200 lg:col-span-1 xl:col-span-1">
               Color fondo
-              <input type="color" value={newLeagueThemeColor || '#020617'} onChange={(event) => setNewLeagueThemeColor(event.target.value)} className="mt-1 block h-8 w-full" />
+              <input disabled={creatingLeague} type="color" value={newLeagueThemeColor || '#020617'} onChange={(event) => setNewLeagueThemeColor(event.target.value)} className="mt-1 block h-8 w-full disabled:opacity-60" />
             </label>
-            <select value={newLeagueCategoryKey} onChange={(event) => setNewLeagueCategoryKey(event.target.value)} className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white lg:col-span-1 xl:col-span-1">
+            <select disabled={creatingLeague} value={newLeagueCategoryKey} onChange={(event) => setNewLeagueCategoryKey(event.target.value)} className="rounded border border-white/20 bg-slate-900 px-2 py-2 text-sm text-white disabled:opacity-60 lg:col-span-1 xl:col-span-1">
               {categoryTemplates.map((category) => (
                 <option key={category.key} value={category.key}>{category.name}</option>
               ))}
@@ -2478,6 +3293,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
             <label className="flex cursor-pointer items-center justify-center gap-2 rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs font-medium text-slate-200 hover:border-white/40 lg:col-span-1 xl:col-span-1">
               <span>{newLeagueBackgroundImageUrl ? 'Cambiar fondo' : 'Imagen fondo'}</span>
               <input
+                disabled={creatingLeague}
                 type="file"
                 accept="image/*"
                 className="hidden"
@@ -2493,6 +3309,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
             <label className="flex cursor-pointer items-center justify-center gap-2 rounded border border-white/20 bg-slate-900 px-2 py-2 text-xs font-medium text-slate-200 hover:border-white/40 lg:col-span-1 xl:col-span-1">
               <span>{newLeagueLogoUrl ? 'Cambiar logo' : 'Logo liga'}</span>
               <input
+                disabled={creatingLeague}
                 type="file"
                 accept="image/*"
                 className="hidden"
@@ -2505,7 +3322,30 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                 }}
               />
             </label>
-            <button type="button" onClick={handleCreateLeague} className="rounded bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-500 lg:col-span-2 xl:col-span-2">Crear liga</button>
+            <button
+              type="button"
+              onClick={handleCreateLeague}
+              disabled={creatingLeague}
+              className="rounded bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-500 disabled:cursor-not-allowed disabled:opacity-60 lg:col-span-2 xl:col-span-2"
+            >
+              {creatingLeague
+                ? leagueCreationFeedback?.title.includes('actualizando') || leagueCreationFeedback?.detail.includes('actualizando')
+                  ? 'Actualizando listado...'
+                  : 'Creando liga...'
+                : 'Crear liga'}
+            </button>
+          </div>
+
+          {/* Redes sociales — form de creación */}
+          <div className="mt-2 rounded border border-white/10 bg-slate-800/60 p-3">
+            <p className="mb-2 text-[11px] font-semibold text-slate-400">Redes sociales (opcional)</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
+              <input disabled={creatingLeague} value={newLeagueSocialInstagram} onChange={(e) => setNewLeagueSocialInstagram(e.target.value)} placeholder="Instagram URL" className="rounded border border-white/20 bg-slate-900 px-2 py-1.5 text-xs text-white placeholder-slate-500 disabled:opacity-60" />
+              <input disabled={creatingLeague} value={newLeagueSocialFacebook} onChange={(e) => setNewLeagueSocialFacebook(e.target.value)} placeholder="Facebook URL" className="rounded border border-white/20 bg-slate-900 px-2 py-1.5 text-xs text-white placeholder-slate-500 disabled:opacity-60" />
+              <input disabled={creatingLeague} value={newLeagueSocialTiktok} onChange={(e) => setNewLeagueSocialTiktok(e.target.value)} placeholder="TikTok URL" className="rounded border border-white/20 bg-slate-900 px-2 py-1.5 text-xs text-white placeholder-slate-500 disabled:opacity-60" />
+              <input disabled={creatingLeague} value={newLeagueSocialYoutube} onChange={(e) => setNewLeagueSocialYoutube(e.target.value)} placeholder="YouTube URL" className="rounded border border-white/20 bg-slate-900 px-2 py-1.5 text-xs text-white placeholder-slate-500 disabled:opacity-60" />
+              <input disabled={creatingLeague} value={newLeagueSocialX} onChange={(e) => setNewLeagueSocialX(e.target.value)} placeholder="X (Twitter) URL" className="rounded border border-white/20 bg-slate-900 px-2 py-1.5 text-xs text-white placeholder-slate-500 disabled:opacity-60" />
+            </div>
           </div>
 
           {(newLeagueBackgroundImageUrl || newLeagueLogoUrl) && (
@@ -2534,14 +3374,6 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
               </div>
             </div>
           )}
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {selectedLeague && (
-              <button type="button" disabled={isReadOnlySeason} onClick={requestDeleteLeague} className="rounded border border-rose-300/50 bg-rose-600/20 px-3 py-1 text-xs font-semibold text-rose-100 disabled:cursor-not-allowed disabled:opacity-60">
-                Eliminar liga seleccionada
-              </button>
-            )}
-          </div>
 
           {selectedLeague && (
             <div className="mt-4 rounded border border-primary-300/20 bg-slate-900/70 p-3">
@@ -2589,8 +3421,31 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     }}
                   />
                 </label>
-                <button type="button" disabled={isReadOnlySeason} onClick={() => void saveLeagueEdit(selectedLeague)} className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-1 text-xs font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60">
-                  Guardar cambios rápidos
+              </div>
+
+              {/* Redes sociales — edición rápida */}
+              <div className="mt-2 rounded border border-white/10 bg-slate-800/60 p-2">
+                <p className="mb-1.5 text-[11px] font-semibold text-slate-400">Redes sociales</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                  <input disabled={isReadOnlySeason} value={leagueEditById[selectedLeague.id]?.socialInstagram ?? selectedLeague.socialLinks?.instagram ?? ''} onChange={(e) => updateLeagueEdit(selectedLeague, { socialInstagram: e.target.value })} placeholder="Instagram URL" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white placeholder-slate-500 disabled:opacity-60" />
+                  <input disabled={isReadOnlySeason} value={leagueEditById[selectedLeague.id]?.socialFacebook ?? selectedLeague.socialLinks?.facebook ?? ''} onChange={(e) => updateLeagueEdit(selectedLeague, { socialFacebook: e.target.value })} placeholder="Facebook URL" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white placeholder-slate-500 disabled:opacity-60" />
+                  <input disabled={isReadOnlySeason} value={leagueEditById[selectedLeague.id]?.socialTiktok ?? selectedLeague.socialLinks?.tiktok ?? ''} onChange={(e) => updateLeagueEdit(selectedLeague, { socialTiktok: e.target.value })} placeholder="TikTok URL" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white placeholder-slate-500 disabled:opacity-60" />
+                  <input disabled={isReadOnlySeason} value={leagueEditById[selectedLeague.id]?.socialYoutube ?? selectedLeague.socialLinks?.youtube ?? ''} onChange={(e) => updateLeagueEdit(selectedLeague, { socialYoutube: e.target.value })} placeholder="YouTube URL" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white placeholder-slate-500 disabled:opacity-60" />
+                  <input disabled={isReadOnlySeason} value={leagueEditById[selectedLeague.id]?.socialX ?? selectedLeague.socialLinks?.x ?? ''} onChange={(e) => updateLeagueEdit(selectedLeague, { socialX: e.target.value })} placeholder="X (Twitter) URL" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white placeholder-slate-500 disabled:opacity-60" />
+                </div>
+              </div>
+
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  disabled={isReadOnlySeason || savingLeagueId === selectedLeague.id}
+                  onClick={() => void saveLeagueEdit(selectedLeague)}
+                  className="flex items-center gap-1.5 rounded border border-primary-300/40 bg-primary-500/20 px-2 py-1 text-xs font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {savingLeagueId === selectedLeague.id && (
+                    <span className="h-2 w-2 rounded-full bg-primary-300 animate-pulse" />
+                  )}
+                  {savingLeagueId === selectedLeague.id ? 'Guardando...' : 'Guardar cambios rápidos'}
                 </button>
               </div>
 
@@ -2655,13 +3510,23 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   <p className="font-semibold">{league.name}</p>
                   <p className="text-[11px] text-slate-400">{league.country} · Temporada {league.season}</p>
                   {league.slogan && <p className="text-[11px] text-primary-200">{league.slogan}</p>}
-                  <button
-                    type="button"
-                    onClick={() => onLeagueSelect(league.id)}
-                    className="mt-2 rounded border border-primary-300/40 bg-primary-500/20 px-2 py-1 text-[11px] font-semibold text-primary-100"
-                  >
-                    Seleccionar liga
-                  </button>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onLeagueSelect(league.id)}
+                      className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-1 text-[11px] font-semibold text-primary-100"
+                    >
+                      Seleccionar liga
+                    </button>
+                    <button
+                      type="button"
+                      disabled={league.season < latestSeason || confirmLoading}
+                      onClick={() => requestDeleteLeagueByCard(league)}
+                      className="rounded border border-rose-300/50 bg-rose-600/20 px-2 py-1 text-[11px] font-semibold text-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -3236,6 +4101,141 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   >
                     {(playerReplacementByTeam[selectedTeam.id]?.enabled ?? false) ? 'Reemplazar jugadora' : 'Agregar jugador'}
                   </button>
+                  <div className="mt-3 rounded border border-white/10 bg-slate-900/50 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-slate-100">Importación masiva desde Excel</p>
+                      {bulkImportFileNameByTeam[selectedTeam.id] && (
+                        <span className="text-[11px] text-slate-400">Archivo: {bulkImportFileNameByTeam[selectedTeam.id]}</span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      Formato sugerido: Nombre, Edad y Dorsal (opcional). Si falta dorsal, se asigna automáticamente. Apodo se genera desde el apellido.
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <label className="inline-flex cursor-pointer items-center rounded border border-cyan-300/40 bg-cyan-500/10 px-3 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/20">
+                        {bulkImportLoadingByTeam[selectedTeam.id] ? 'Leyendo Excel...' : 'Cargar Excel'}
+                        <input
+                          type="file"
+                          accept=".xlsx,.xls,.csv"
+                          className="hidden"
+                          disabled={Boolean(bulkImportLoadingByTeam[selectedTeam.id]) || isReadOnlySeason}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0]
+                            if (!file) return
+                            void handleImportPlayersExcel(selectedTeam.id, file)
+                            event.currentTarget.value = ''
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        disabled={
+                          isReadOnlySeason
+                          || Boolean(bulkImportSavingByTeam[selectedTeam.id])
+                          || (bulkImportPlayersByTeam[selectedTeam.id]?.length ?? 0) === 0
+                        }
+                        onClick={() => void handleSaveBulkImportedPlayers(selectedTeam.id)}
+                        className="rounded border border-emerald-300/40 bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {bulkImportSavingByTeam[selectedTeam.id] ? 'Guardando...' : 'Guardar masivamente'}
+                      </button>
+                      {(bulkImportPlayersByTeam[selectedTeam.id]?.length ?? 0) > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBulkImportPlayersByTeam((current) => ({ ...current, [selectedTeam.id]: [] }))
+                            setBulkImportFileNameByTeam((current) => ({ ...current, [selectedTeam.id]: '' }))
+                          }}
+                          className="rounded border border-rose-300/40 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-100"
+                        >
+                          Limpiar pre-carga
+                        </button>
+                      )}
+                    </div>
+
+                    {(bulkImportPlayersByTeam[selectedTeam.id]?.length ?? 0) > 0 && (
+                      <div className="mt-3 overflow-x-auto">
+                        <table className="min-w-full text-[11px] text-slate-200">
+                          <thead className="bg-slate-800/70">
+                            <tr>
+                              <th className="p-2 text-left">Nombre</th>
+                              <th className="p-2 text-left">Apodo</th>
+                              <th className="p-2 text-left">Edad</th>
+                              <th className="p-2 text-left">Dorsal</th>
+                              <th className="p-2 text-left">Pos.</th>
+                              <th className="p-2 text-left">Estado</th>
+                              <th className="p-2 text-center">Acción</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(bulkImportPlayersByTeam[selectedTeam.id] ?? []).map((row) => (
+                              <tr key={row.id} className="border-t border-white/10">
+                                <td className="p-1">
+                                  <input
+                                    value={row.name}
+                                    onChange={(event) => updateBulkImportRow(selectedTeam.id, row.id, { name: event.target.value })}
+                                    className="w-full rounded border border-white/20 bg-slate-900 px-2 py-1 text-[11px] text-white"
+                                  />
+                                </td>
+                                <td className="p-1">
+                                  <input
+                                    value={row.nickname}
+                                    onChange={(event) => updateBulkImportRow(selectedTeam.id, row.id, { nickname: event.target.value })}
+                                    className="w-full rounded border border-white/20 bg-slate-900 px-2 py-1 text-[11px] text-white"
+                                  />
+                                </td>
+                                <td className="p-1">
+                                  <input
+                                    type="number"
+                                    min={5}
+                                    value={row.age}
+                                    onChange={(event) => updateBulkImportRow(selectedTeam.id, row.id, { age: event.target.value })}
+                                    className="w-20 rounded border border-white/20 bg-slate-900 px-2 py-1 text-[11px] text-white"
+                                  />
+                                </td>
+                                <td className="p-1">
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={row.number}
+                                    onChange={(event) => updateBulkImportRow(selectedTeam.id, row.id, { number: event.target.value })}
+                                    className="w-20 rounded border border-white/20 bg-slate-900 px-2 py-1 text-[11px] text-white"
+                                  />
+                                </td>
+                                <td className="p-1">
+                                  <select
+                                    value={normalizePosition(row.position)}
+                                    onChange={(event) => updateBulkImportRow(selectedTeam.id, row.id, { position: event.target.value })}
+                                    className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-[11px] text-white"
+                                  >
+                                    {playerPositionOptions.map((position) => (
+                                      <option key={`bulk-pos-${row.id}-${position}`} value={position}>{position}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="p-1">
+                                  {row.error ? (
+                                    <span className="text-rose-300">{row.error}</span>
+                                  ) : (
+                                    <span className="text-emerald-300">Lista</span>
+                                  )}
+                                </td>
+                                <td className="p-1 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => removeBulkImportRow(selectedTeam.id, row.id)}
+                                    className="rounded border border-white/20 px-2 py-0.5 text-[10px] text-slate-300 hover:border-rose-300/60 hover:text-rose-200"
+                                  >
+                                    Quitar
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
                   <button
                     type="button"
                     onClick={() => setTab('carnet')}
@@ -4358,8 +5358,22 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
               ¿Confirmas eliminar <span className="font-semibold text-white">{confirmAction.label}</span>? Esta acción no se puede deshacer.
             </p>
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={() => setConfirmAction(null)} className="rounded border border-white/20 px-3 py-1 text-sm text-slate-200">Cancelar</button>
-              <button type="button" onClick={() => void executeConfirm()} className="rounded border border-rose-300/50 bg-rose-600/30 px-3 py-1 text-sm font-semibold text-rose-100">Eliminar</button>
+              <button
+                type="button"
+                disabled={confirmLoading}
+                onClick={() => setConfirmAction(null)}
+                className="rounded border border-white/20 px-3 py-1 text-sm text-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={confirmLoading}
+                onClick={() => void executeConfirm()}
+                className="rounded border border-rose-300/50 bg-rose-600/30 px-3 py-1 text-sm font-semibold text-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {confirmLoading ? 'Eliminando...' : 'Eliminar'}
+              </button>
             </div>
           </div>
         </div>

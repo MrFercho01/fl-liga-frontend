@@ -24,6 +24,8 @@ export interface RuleSet {
   finalStageFinalTwoLegged?: boolean
   doubleRoundRobin?: boolean
   regularSeasonRounds?: number
+  seriesCount?: 3 | 5
+  walkoversGoalDiff?: number
 }
 
 export interface Category {
@@ -32,6 +34,14 @@ export interface Category {
   minAge: number
   maxAge: number | null
   rules: RuleSet
+}
+
+export interface SocialLinks {
+  instagram?: string
+  facebook?: string
+  tiktok?: string
+  youtube?: string
+  x?: string
 }
 
 export interface League {
@@ -47,4 +57,5 @@ export interface League {
   ownerUserId: string
   logoUrl?: string
   categories: Category[]
+  socialLinks?: SocialLinks
 }
