@@ -4,7 +4,7 @@ import jsQR from 'jsqr'
 import QRCode from 'qrcode'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import * as XLSX from 'xlsx'
-import { apiService } from '../services/api'
+import { apiBaseUrl, apiService } from '../services/api'
 import type {
   FixtureResponse,
   FixtureScheduleEntry,
@@ -323,16 +323,35 @@ const normalizeLabel = (value: string) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
 
-const loadImageAsDataUrl = async (src?: string) => {
+const normalizeAssetUrl = (src?: string) => {
   if (!src) return ''
-  if (src.startsWith('data:')) return src
+  const trimmed = src.trim()
+  if (!trimmed) return ''
+  if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) return trimmed
+  if (trimmed.startsWith('//')) return `https:${trimmed}`
+  if (/^http:\/\//i.test(trimmed)) return trimmed.replace(/^http:\/\//i, 'https://')
+  if (/^https:\/\//i.test(trimmed)) return trimmed
+
+  const base = apiBaseUrl.replace(/\/$/, '')
+  if (trimmed.startsWith('/')) return `${base}${trimmed}`
+  if (trimmed.startsWith('uploads/')) return `${base}/${trimmed}`
+  return trimmed
+}
+
+const buildImageProxyUrl = (src: string) =>
+  `${apiBaseUrl.replace(/\/$/, '')}/api/public/image-proxy?url=${encodeURIComponent(src)}`
+
+const loadImageAsDataUrl = async (src?: string) => {
+  const normalizedSrc = normalizeAssetUrl(src)
+  if (!normalizedSrc) return ''
+  if (normalizedSrc.startsWith('data:')) return normalizedSrc
 
   try {
-    const response = await fetch(src, { 
+    const response = await fetch(normalizedSrc, {
       mode: 'cors',
-      credentials: 'omit'
+      credentials: 'omit',
     })
-    if (!response.ok) return ''
+    if (!response.ok) throw new Error('direct-fetch-failed')
     const blob = await response.blob()
 
     return await new Promise<string>((resolve, reject) => {
@@ -342,7 +361,22 @@ const loadImageAsDataUrl = async (src?: string) => {
       reader.readAsDataURL(blob)
     })
   } catch {
-    return ''
+    try {
+      const proxyResponse = await fetch(buildImageProxyUrl(normalizedSrc), {
+        credentials: 'omit',
+      })
+      if (!proxyResponse.ok) return ''
+      const blob = await proxyResponse.blob()
+
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+        reader.onerror = () => reject(new Error('No se pudo convertir imagen por proxy'))
+        reader.readAsDataURL(blob)
+      })
+    } catch {
+      return ''
+    }
   }
 }
 
@@ -426,6 +460,7 @@ const TeamLogo = ({
   name: string
   sizeClass: string
 }) => {
+  const normalizedLogoUrl = normalizeAssetUrl(logoUrl)
   const initials = name
     .split(' ')
     .filter(Boolean)
@@ -436,9 +471,9 @@ const TeamLogo = ({
   return (
     <div className={`relative flex ${sizeClass} items-center justify-center overflow-hidden rounded border border-slate-300 bg-slate-100 text-[10px] font-semibold text-slate-700`}>
       <span>{initials || 'EQ'}</span>
-      {logoUrl && (
+      {normalizedLogoUrl && (
         <img
-          src={logoUrl}
+          src={normalizedLogoUrl}
           alt={name}
           crossOrigin="anonymous"
           referrerPolicy="no-referrer"
@@ -1183,9 +1218,9 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     .map((part) => part[0]?.toUpperCase() ?? '')
     .join('')
   const digitalCardLeagueLogoSrc =
-    digitalCardLeagueLogoOverrideDataUrl || digitalCardLeagueLogoDataUrl || selectedLeague?.logoUrl || ''
-  const digitalCardTeamLogoSrc = digitalCardTeamLogoDataUrl || digitalCardTeam?.logoUrl || ''
-  const digitalCardPlayerPhotoSrc = digitalCardPlayerPhotoDataUrl || digitalCardPlayer?.photoUrl || ''
+    normalizeAssetUrl(digitalCardLeagueLogoOverrideDataUrl || digitalCardLeagueLogoDataUrl || selectedLeague?.logoUrl || '')
+  const digitalCardTeamLogoSrc = normalizeAssetUrl(digitalCardTeamLogoDataUrl || digitalCardTeam?.logoUrl || '')
+  const digitalCardPlayerPhotoSrc = normalizeAssetUrl(digitalCardPlayerPhotoDataUrl || digitalCardPlayer?.photoUrl || '')
 
   const validationPayload = useMemo(() => {
     if (!selectedLeague || !digitalCardTeam || !digitalCardPlayer) return ''
