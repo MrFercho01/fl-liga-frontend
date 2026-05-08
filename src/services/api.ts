@@ -1416,11 +1416,11 @@ export const apiService = {
     awayTeamId: string
   }): Promise<ApiResponse<LiveMatch>> {
     try {
-      const response = await apiFetchWithRetry(`${apiBaseUrl}/api/admin/live/load-match`, {
+      const response = await apiFetchWithWakeRetry(`${apiBaseUrl}/api/admin/live/load-match`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-      }, 60_000, 1, 4000)
+      }, 60_000, 4000)
 
       if (!response.ok) {
         const errorPayload = (await response.json()) as { message?: string }

@@ -4902,7 +4902,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                           <p className="truncate text-[11px] font-semibold tracking-wide opacity-90">NOMBRES</p>
                           <p className="truncate text-xl font-black leading-tight">{digitalCardPlayer.name}</p>
                           <p className="mt-1 text-lg font-bold">Dorsal #{digitalCardPlayer.number}</p>
-                          <div className="mt-1.5 flex items-center gap-2">
+                          <div className="mt-1.5 flex min-w-0 items-center gap-2">
                             {digitalCardTeamLogoSrc ? (
                               <img
                                 src={digitalCardTeamLogoSrc}
@@ -4914,25 +4914,23 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                             ) : (
                               <div className="flex h-8 w-8 items-center justify-center rounded border border-white/50 bg-white/20 text-[10px] font-bold">EQ</div>
                             )}
-                            <p className="truncate text-[14px] font-semibold">{digitalCardTeam.name}</p>
+                            <p className="min-w-0 flex-1 truncate text-[14px] font-semibold">{digitalCardTeam.name}</p>
+                            <div className="shrink-0 rounded border border-white/40 bg-white p-0.5 text-slate-900">
+                              {digitalCardQrDataUrl ? (
+                                <img
+                                  src={digitalCardQrDataUrl}
+                                  alt="QR validación"
+                                  className="h-8 w-8"
+                                />
+                              ) : (
+                                <div className="flex h-8 w-8 items-center justify-center text-[9px] font-semibold">QR</div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-[108px_1fr] items-end gap-3">
-                        <div className="rounded-md border border-white/40 bg-white p-1.5 text-slate-900">
-                          {digitalCardQrDataUrl ? (
-                            <img
-                              src={digitalCardQrDataUrl}
-                              alt="QR validación"
-                              className="h-24 w-24"
-                            />
-                          ) : (
-                            <div className="flex h-24 w-24 items-center justify-center text-[10px] font-semibold">QR</div>
-                          )}
-                        </div>
-                        <p className="text-[11px] opacity-95">Escanea para validar registro de jugadora en plantilla titular/suplente.</p>
-                      </div>
+                      <p className="text-[11px] opacity-95">Escanea para validar registro de jugadora en plantilla titular/suplente.</p>
                     </div>
                   </div>
                 </div>
