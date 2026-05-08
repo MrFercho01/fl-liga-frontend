@@ -494,6 +494,8 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [teamSaveMsg, setTeamSaveMsg] = useState<Record<string, { text: string; ok: boolean }>>({})
   const [teamSavingById, setTeamSavingById] = useState<Record<string, boolean>>({})
   const [playerSaveMsg, setPlayerSaveMsg] = useState<Record<string, { text: string; ok: boolean }>>({})
+  const [playerAddFeedbackByTeam, setPlayerAddFeedbackByTeam] = useState<Record<string, { text: string; ok: boolean }>>({})
+  const [playerAddingByTeam, setPlayerAddingByTeam] = useState<Record<string, boolean>>({})
   const [playerEditById, setPlayerEditById] = useState<Record<string, PlayerDraft>>({})
   const [playerReplacementByTeam, setPlayerReplacementByTeam] = useState<Record<string, { enabled: boolean; replacePlayerId: string }>>({})
   const [bulkImportPlayersByTeam, setBulkImportPlayersByTeam] = useState<Record<string, BulkImportPlayerDraft[]>>({})
@@ -683,18 +685,18 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
   // Control de llamada única para evitar requests duplicados
   const lastRequestRef = useRef<{ leagueId: string; categoryId: string } | null>(null)
-  const loadTeams = useCallback(async () => {
+  const loadTeams = useCallback(async (force = false) => {
     if (!selectedLeague || !activeCategoryId) {
       setTeams([])
       lastRequestRef.current = null
       return
     }
     // Solo llamar si los valores realmente cambiaron
-    if (
+    if (!force && (
       lastRequestRef.current &&
       lastRequestRef.current.leagueId === selectedLeague.id &&
       lastRequestRef.current.categoryId === activeCategoryId
-    ) {
+    )) {
       return
     }
     const requestSeq = ++teamsRequestSeqRef.current
@@ -975,7 +977,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
         if (typeof lastRequestRef !== 'undefined' && lastRequestRef.current) {
           lastRequestRef.current = null;
         }
-        await loadTeams()
+        await loadTeams(true)
         setLoading(false)
   }
 
@@ -2615,6 +2617,10 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       return
     }
 
+    if (playerAddingByTeam[teamId]) {
+      return
+    }
+
     const atCapacity = targetTeam.players.length >= activeCategoryMaxRegisteredPlayers
     if (atCapacity && !replacementConfig.enabled) {
       showMessage(`Cupo completo (${activeCategoryMaxRegisteredPlayers}). Activa reemplazo por lesión o elimina una jugadora.`)
@@ -2631,34 +2637,47 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       return
     }
 
-    const response = await apiService.addPlayerToTeam(teamId, {
-      name: draft.name,
-      nickname: draft.nickname,
-      age: draft.age,
-      number: draft.number,
-      position: normalizePosition(draft.position),
-      registrationStatus: draft.registrationStatus,
-      photoUrl: draft.photoUrl || undefined,
-      replacePlayerId: replacementConfig.enabled ? replacementConfig.replacePlayerId : undefined,
-      replacementReason: replacementConfig.enabled ? 'injury' : undefined,
-    })
+    setPlayerAddingByTeam((current) => ({ ...current, [teamId]: true }))
+    setPlayerAddFeedbackByTeam((current) => ({ ...current, [teamId]: { text: '', ok: true } }))
 
-    if (!response.ok) {
-      showMessage(response.message)
-      return
+    try {
+      const response = await apiService.addPlayerToTeam(teamId, {
+        name: draft.name,
+        nickname: draft.nickname,
+        age: draft.age,
+        number: draft.number,
+        position: normalizePosition(draft.position),
+        registrationStatus: draft.registrationStatus,
+        photoUrl: draft.photoUrl || undefined,
+        replacePlayerId: replacementConfig.enabled ? replacementConfig.replacePlayerId : undefined,
+        replacementReason: replacementConfig.enabled ? 'injury' : undefined,
+      })
+
+      if (!response.ok) {
+        setPlayerAddFeedbackByTeam((current) => ({ ...current, [teamId]: { text: response.message, ok: false } }))
+        showMessage(response.message)
+        return
+      }
+
+      setPlayerDraftByTeam((current) => ({
+        ...current,
+        [teamId]: { ...defaultPlayerDraft, number: (current[teamId]?.number ?? 1) + 1 },
+      }))
+      setPlayerReplacementByTeam((current) => ({
+        ...current,
+        [teamId]: { enabled: false, replacePlayerId: '' },
+      }))
+      showMessage(replacementConfig.enabled ? 'Reemplazo por lesión registrado' : 'Jugador agregado')
+      setPlayerAddFeedbackByTeam((current) => ({
+        ...current,
+        [teamId]: { text: replacementConfig.enabled ? 'Reemplazo guardado correctamente' : 'Jugador agregado correctamente', ok: true },
+      }))
+      applyAddPlayerResponseToTeamState(teamId, response.data)
+      setPlayerPage(1)
+      await loadTeams(true)
+    } finally {
+      setPlayerAddingByTeam((current) => ({ ...current, [teamId]: false }))
     }
-
-    setPlayerDraftByTeam((current) => ({
-      ...current,
-      [teamId]: { ...defaultPlayerDraft, number: (current[teamId]?.number ?? 1) + 1 },
-    }))
-    setPlayerReplacementByTeam((current) => ({
-      ...current,
-      [teamId]: { enabled: false, replacePlayerId: '' },
-    }))
-    showMessage(replacementConfig.enabled ? 'Reemplazo por lesión registrado' : 'Jugador agregado')
-    applyAddPlayerResponseToTeamState(teamId, response.data)
-    setPlayerPage(1)
   }
 
   const updateTeamEdit = (
@@ -2762,7 +2781,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     }
 
     showMessage(nextActive ? 'Equipo reactivado' : 'Equipo desactivado y excluido de historial/tabla')
-    await loadTeams()
+    await loadTeams(true)
   }
 
   const handleUploadMatchVideo = async (matchId: string, categoryId: string) => {
@@ -2979,7 +2998,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
         }
 
         showMessage('Equipo eliminado')
-        await loadTeams()
+        await loadTeams(true)
         setConfirmAction(null)
         return
       }
@@ -2992,7 +3011,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       }
 
       showMessage('Jugador eliminado')
-      await loadTeams()
+      await loadTeams(true)
       setConfirmAction(null)
     } finally {
       setConfirmLoading(false)
@@ -4348,12 +4367,19 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   </div>
                   <button
                     type="button"
-                    disabled={isReadOnlySeason}
+                    disabled={isReadOnlySeason || Boolean(playerAddingByTeam[selectedTeam.id])}
                     onClick={() => void handleAddPlayer(selectedTeam.id)}
                     className="mt-2 rounded border border-primary-300/40 bg-primary-500/20 px-3 py-1 text-xs font-semibold text-primary-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {(playerReplacementByTeam[selectedTeam.id]?.enabled ?? false) ? 'Reemplazar jugadora' : 'Agregar jugador'}
+                    {playerAddingByTeam[selectedTeam.id]
+                      ? 'Agregando...'
+                      : ((playerReplacementByTeam[selectedTeam.id]?.enabled ?? false) ? 'Reemplazar jugadora' : 'Agregar jugador')}
                   </button>
+                  {playerAddFeedbackByTeam[selectedTeam.id]?.text && (
+                    <p className={`mt-2 text-[11px] ${playerAddFeedbackByTeam[selectedTeam.id]?.ok ? 'text-emerald-300' : 'text-red-400'}`}>
+                      {playerAddFeedbackByTeam[selectedTeam.id]?.text}
+                    </p>
+                  )}
                   <div className="mt-3 rounded border border-white/10 bg-slate-900/50 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs font-semibold text-slate-100">Importación masiva: Excel o imagen</p>
