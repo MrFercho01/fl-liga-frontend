@@ -216,6 +216,22 @@ const normalizeLabel = (value: string) =>
     .replace(/\s+/g, ' ')
     .trim()
 
+const formatPitchPlayerName = (fullName: string) => {
+  const parts = fullName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (parts.length === 0) return 'Sin nombre'
+  if (parts.length === 1) return parts[0]
+
+  const firstSurname = parts[0]
+  const firstName = parts.length >= 3 ? parts[2] : parts[1]
+  const initial = firstName.charAt(0).toUpperCase()
+
+  return `${initial}. ${firstSurname}`
+}
+
 const parseFormationLines = (formationKey?: string) => {
   if (!formationKey) return null
 
@@ -2277,8 +2293,8 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
           const isHomeTeam = event.teamId === liveForSelected.homeTeam.id
           const team = isHomeTeam ? liveForSelected.homeTeam : liveForSelected.awayTeam
           const playerName = event.playerId
-            ? (team.players.find((player) => player.id === event.playerId)?.name ?? 'Sin jugadora')
-            : 'Sin jugadora'
+            ? (team.players.find((player) => player.id === event.playerId)?.name ?? 'Sin jugador')
+            : 'Sin jugador'
 
           return {
             id: `goal-live-${event.id}`,
@@ -2938,7 +2954,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                             </div>
                           )}
                           <div className="min-w-0">
-                            <p className="text-xs font-semibold text-amber-50 sm:text-sm">🏅 Jugadora de la fecha</p>
+                            <p className="text-xs font-semibold text-amber-50 sm:text-sm">🏅 Jugador de la fecha</p>
                             <p className="truncate text-sm font-bold text-white sm:text-base">{selectedRoundAward.name}</p>
                             <p className="truncate text-xs text-slate-200 sm:text-sm">{selectedRoundAward.teamName}</p>
                           </div>
@@ -3192,7 +3208,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                               setPublicRankingSearchTerm(event.target.value)
                               setPublicRankingPage(1)
                             }}
-                            placeholder="Buscar jugadora/equipo..."
+                            placeholder="Buscar jugador/equipo..."
                             className="w-48 rounded border border-white/20 bg-slate-800 px-2 py-1 text-[11px] text-white placeholder:text-slate-400"
                           />
                         </div>
@@ -3652,19 +3668,22 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                       Aún no se han definido titulares. El esquema de cancha aparecerá automáticamente al cargar las alineaciones.
                     </div>
                   ) : (
-                    <div className="relative h-[440px]">
+                    <div className="relative h-[500px]">
                       <div className="absolute inset-x-2 top-4 bottom-[54%] flex flex-col justify-evenly overflow-hidden">
                         {awayVisualLines.map((line, lineIndex) => (
                           <div key={`away-line-${lineIndex}`} className="px-1">
                             <div
                               className="grid items-start gap-2"
-                              style={{ gridTemplateColumns: `repeat(${line.length}, minmax(0, 1fr))` }}
+                              style={{
+                                gridTemplateColumns: `repeat(${line.length}, minmax(0, 1fr))`,
+                                columnGap: line.length >= 5 ? '0.25rem' : '0.5rem',
+                              }}
                             >
                             {line.map((player) => (
                               <div key={player.id} className="min-w-0 text-center">
-                                <div className="relative mx-auto h-9 w-9">
+                                <div className={`relative mx-auto ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}>
                                   <div
-                                    className="flex h-9 w-9 items-center justify-center rounded-full border border-white/80 text-xs font-bold"
+                                    className={`flex items-center justify-center rounded-full border border-white/80 font-bold ${line.length >= 5 ? 'h-8 w-8 text-[11px]' : 'h-9 w-9 text-xs'}`}
                                     style={{ backgroundColor: awayPalette.fill, color: awayPalette.text }}
                                   >
                                     {player.number}
@@ -3699,8 +3718,8 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                     )
                                   })()}
                                 </div>
-                                <p className={`mt-1 px-0.5 font-semibold text-white drop-shadow ${line.length >= 5 ? 'text-[9px]' : 'text-[10px]'} truncate`}>
-                                  {player.name}
+                                <p className={`mt-1 px-0.5 font-semibold leading-tight text-white drop-shadow ${line.length >= 5 ? 'text-[8px]' : line.length === 4 ? 'text-[9px]' : 'text-[10px]'}`}>
+                                  {formatPitchPlayerName(player.name)}
                                 </p>
                               </div>
                             ))}
@@ -3714,13 +3733,16 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                           <div key={`home-line-${lineIndex}`} className="px-1">
                             <div
                               className="grid items-start gap-2"
-                              style={{ gridTemplateColumns: `repeat(${line.length}, minmax(0, 1fr))` }}
+                              style={{
+                                gridTemplateColumns: `repeat(${line.length}, minmax(0, 1fr))`,
+                                columnGap: line.length >= 5 ? '0.25rem' : '0.5rem',
+                              }}
                             >
                             {line.map((player) => (
                               <div key={player.id} className="min-w-0 text-center">
-                                <div className="relative mx-auto h-9 w-9">
+                                <div className={`relative mx-auto ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}>
                                   <div
-                                    className="flex h-9 w-9 items-center justify-center rounded-full border border-white/80 text-xs font-bold"
+                                    className={`flex items-center justify-center rounded-full border border-white/80 font-bold ${line.length >= 5 ? 'h-8 w-8 text-[11px]' : 'h-9 w-9 text-xs'}`}
                                     style={{ backgroundColor: homePalette.fill, color: homePalette.text }}
                                   >
                                     {player.number}
@@ -3755,8 +3777,8 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                     )
                                   })()}
                                 </div>
-                                <p className={`mt-1 px-0.5 font-semibold text-white drop-shadow ${line.length >= 5 ? 'text-[9px]' : 'text-[10px]'} truncate`}>
-                                  {player.name}
+                                <p className={`mt-1 px-0.5 font-semibold leading-tight text-white drop-shadow ${line.length >= 5 ? 'text-[8px]' : line.length === 4 ? 'text-[9px]' : 'text-[10px]'}`}>
+                                  {formatPitchPlayerName(player.name)}
                                 </p>
                               </div>
                             ))}
