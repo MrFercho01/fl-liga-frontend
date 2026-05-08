@@ -378,6 +378,7 @@ function App() {
   const [leagueTeams, setLeagueTeams] = useState<RegisteredTeam[]>([])
   const [leagueFixture, setLeagueFixture] = useState<FixtureResponse | null>(null)
   const [matchesLoading, setMatchesLoading] = useState(false)
+  const [isLoadingLive, setIsLoadingLive] = useState(false)
   const [selectedPendingMatchId, setSelectedPendingMatchId] = useState('')
   const [selectedPendingRound, setSelectedPendingRound] = useState('')
   const [matchesTab, setMatchesTab] = useState<'regular' | 'finales'>('regular')
@@ -3715,36 +3716,41 @@ function App() {
       return
     }
 
-    const response = await apiService.loadLiveMatch({
-      matchId: selectedPendingMatch.id,
-      leagueId: selectedLeague.id,
-      categoryId: activeMatchCategoryId,
-      homeTeamId: selectedPendingMatch.homeTeamId,
-      awayTeamId: selectedPendingMatch.awayTeamId,
-    })
+    setIsLoadingLive(true)
+    try {
+      const response = await apiService.loadLiveMatch({
+        matchId: selectedPendingMatch.id,
+        leagueId: selectedLeague.id,
+        categoryId: activeMatchCategoryId,
+        homeTeamId: selectedPendingMatch.homeTeamId,
+        awayTeamId: selectedPendingMatch.awayTeamId,
+      })
 
-    if (!response.ok) {
-      applyActionFeedback(false, '', response.message)
-      return
+      if (!response.ok) {
+        applyActionFeedback(false, '', response.message)
+        return
+      }
+
+      setLiveMatch(response.data)
+      setSelectedTeamId(response.data.homeTeam.id)
+      setLineupStarters(response.data.homeTeam.starters)
+      setLineupSubstitutes(response.data.homeTeam.substitutes)
+      setSettingsDraft(response.data.settings)
+      setSubstitutionVisualByTeam({})
+      setSubstitutionTimelineByTeam({})
+      setSelectedMvpPlayerId('')
+      setSecondHalfStarted(false)
+      setAdminLiveMatches((current) => {
+        const next = current.filter((item) => item.id !== response.data.id)
+        next.unshift(response.data)
+        return next
+      })
+      // Unirse al room del partido para recibir live:update en tiempo real
+      adminSocketRef.current?.emit('join:match', selectedPendingMatch.id)
+      applyActionFeedback(true, 'Partido cargado para iniciar en vivo', '')
+    } finally {
+      setIsLoadingLive(false)
     }
-
-    setLiveMatch(response.data)
-    setSelectedTeamId(response.data.homeTeam.id)
-    setLineupStarters(response.data.homeTeam.starters)
-    setLineupSubstitutes(response.data.homeTeam.substitutes)
-    setSettingsDraft(response.data.settings)
-    setSubstitutionVisualByTeam({})
-    setSubstitutionTimelineByTeam({})
-    setSelectedMvpPlayerId('')
-    setSecondHalfStarted(false)
-    setAdminLiveMatches((current) => {
-      const next = current.filter((item) => item.id !== response.data.id)
-      next.unshift(response.data)
-      return next
-    })
-    // Unirse al room del partido para recibir live:update en tiempo real
-    adminSocketRef.current?.emit('join:match', selectedPendingMatch.id)
-    applyActionFeedback(true, 'Partido cargado para iniciar en vivo', '')
   }
 
   const openSelectedPendingLiveMatch = () => {
@@ -5290,10 +5296,10 @@ function App() {
                     <button
                       type="button"
                       onClick={() => void startPendingMatchLive()}
-                      disabled={liveLoadedForSelectedPendingScoped}
+                      disabled={liveLoadedForSelectedPendingScoped || isLoadingLive}
                       className="mt-2 rounded bg-emerald-600 px-3 py-1 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      Iniciar y configurar en Live
+                      {isLoadingLive ? 'Cargando…' : 'Iniciar y configurar en Live'}
                     </button>
                     {liveLoadedForSelectedPendingScoped && (
                       <p className="mt-1 text-[11px] text-emerald-100/80">
