@@ -4902,19 +4902,21 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                           <p className="truncate text-[11px] font-semibold tracking-wide opacity-90">NOMBRES</p>
                           <p className="truncate text-xl font-black leading-tight">{digitalCardPlayer.name}</p>
                           <p className="mt-1 text-lg font-bold">Dorsal #{digitalCardPlayer.number}</p>
-                          <div className="mt-1.5 flex min-w-0 items-center gap-2">
+                          <div className="mt-1.5 flex min-w-0 items-start gap-2">
                             {digitalCardTeamLogoSrc ? (
                               <img
                                 src={digitalCardTeamLogoSrc}
                                 alt={digitalCardTeam.name}
                                 crossOrigin="anonymous"
                                 referrerPolicy="no-referrer"
-                                className="h-8 w-8 rounded border border-white/50 bg-white object-contain p-0.5"
+                                className="h-8 w-8 shrink-0 rounded border border-white/50 bg-white object-contain p-0.5"
                               />
                             ) : (
-                              <div className="flex h-8 w-8 items-center justify-center rounded border border-white/50 bg-white/20 text-[10px] font-bold">EQ</div>
+                              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-white/50 bg-white/20 text-[10px] font-bold">EQ</div>
                             )}
-                            <p className="min-w-0 flex-1 truncate text-[14px] font-semibold">{digitalCardTeam.name}</p>
+                            <p className="min-w-0 flex-1 whitespace-normal break-words text-[13px] font-semibold leading-tight">
+                              {digitalCardTeam.name}
+                            </p>
                             <div className="shrink-0 rounded border border-white/40 bg-white p-0.5 text-slate-900">
                               {digitalCardQrDataUrl ? (
                                 <img
