@@ -2610,6 +2610,9 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     }
 
     const draft = playerDraftByTeam[teamId] ?? defaultPlayerDraft
+    const normalizedDraftName = draft.name.trim().toLowerCase()
+    const normalizedDraftNickname = draft.nickname.trim().toLowerCase()
+    const draftNumber = Number(draft.number)
     const replacementConfig = playerReplacementByTeam[teamId] ?? { enabled: false, replacePlayerId: '' }
     const targetTeam = teams.find((item) => item.id === teamId)
 
@@ -2655,6 +2658,39 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       })
 
       if (!response.ok) {
+        // Si Render estaba despertando, validamos si la jugadora sí quedó guardada para evitar falso error.
+        const looksLikeTimeout = /tard[oó]|sin conexi[oó]n/i.test(response.message)
+        if (looksLikeTimeout && selectedLeague && activeCategoryId) {
+          const confirmation = await apiService.getLeagueTeams(selectedLeague.id, activeCategoryId)
+          if (confirmation.ok) {
+            const confirmedTeam = confirmation.data.find((item) => item.id === teamId)
+            const confirmedPlayer = confirmedTeam?.players.some((player) => (
+              player.number === draftNumber
+              && player.name.trim().toLowerCase() === normalizedDraftName
+              && player.nickname.trim().toLowerCase() === normalizedDraftNickname
+            ))
+
+            if (confirmedPlayer && confirmedTeam) {
+              setTeams((current) => current.map((item) => (item.id === teamId ? confirmedTeam : item)))
+              setPlayerDraftByTeam((current) => ({
+                ...current,
+                [teamId]: { ...defaultPlayerDraft, number: (current[teamId]?.number ?? 1) + 1 },
+              }))
+              setPlayerReplacementByTeam((current) => ({
+                ...current,
+                [teamId]: { enabled: false, replacePlayerId: '' },
+              }))
+              setPlayerAddFeedbackByTeam((current) => ({
+                ...current,
+                [teamId]: { text: 'Jugador agregado (confirmado tras reconexión)', ok: true },
+              }))
+              showMessage('Jugador agregado')
+              setPlayerPage(1)
+              return
+            }
+          }
+        }
+
         setPlayerAddFeedbackByTeam((current) => ({ ...current, [teamId]: { text: response.message, ok: false } }))
         showMessage(response.message)
         return
@@ -2675,7 +2711,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       }))
       applyAddPlayerResponseToTeamState(teamId, response.data)
       setPlayerPage(1)
-      await loadTeams(true)
+      void loadTeams(true)
     } finally {
       setPlayerAddingByTeam((current) => ({ ...current, [teamId]: false }))
     }
@@ -2891,7 +2927,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       })
       // Actualizar directamente el equipo en el array con la respuesta del backend
       setTeams((current) => current.map((t) => (t.id === teamId ? response.data : t)))
-      await loadTeams(true)
+      void loadTeams(true)
     } finally {
       setPlayerSavingById((current) => ({ ...current, [saveKey]: false }))
     }
