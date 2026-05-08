@@ -79,6 +79,32 @@ const apiFetch = async (url: string, init?: RequestInit, timeoutMs = 45_000): Pr
   }
 }
 
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
+
+const isWakeupRetryableError = (error: unknown) => {
+  if (error instanceof DOMException && error.name === 'AbortError') return true
+  if (error instanceof TypeError) return true
+  return false
+}
+
+const apiFetchWithWakeRetry = async (
+  url: string,
+  init?: RequestInit,
+  timeoutMs = 45_000,
+  retryDelayMs = 2500,
+): Promise<Response> => {
+  try {
+    return await apiFetch(url, init, timeoutMs)
+  } catch (error) {
+    if (!isWakeupRetryableError(error)) {
+      throw error
+    }
+
+    await sleep(retryDelayMs)
+    return apiFetch(url, init, timeoutMs)
+  }
+}
+
 const buildValidationErrorMessage = (payload: {
   message?: string
   errors?: {
@@ -1009,7 +1035,7 @@ export const apiService = {
     },
   ): Promise<ApiResponse<RegisteredTeam>> {
     try {
-      const response = await apiFetch(`${apiBaseUrl}/api/admin/teams/${teamId}/players`, {
+      const response = await apiFetchWithWakeRetry(`${apiBaseUrl}/api/admin/teams/${teamId}/players`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(player),
@@ -1024,7 +1050,7 @@ export const apiService = {
       return { ok: true, data: payload.data }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
-        return { ok: false, message: 'El backend tardó en responder (Render en reposo). Intenta nuevamente en unos segundos.' }
+        return { ok: false, message: 'El backend tardó en responder tras reintento automático. Intenta nuevamente en unos segundos.' }
       }
       return { ok: false, message: 'Sin conexión con backend' }
     }
@@ -1302,7 +1328,7 @@ export const apiService = {
     },
   ): Promise<ApiResponse<RegisteredTeam>> {
     try {
-      const response = await apiFetch(`${apiBaseUrl}/api/admin/teams/${teamId}/players/${playerId}`, {
+      const response = await apiFetchWithWakeRetry(`${apiBaseUrl}/api/admin/teams/${teamId}/players/${playerId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1317,7 +1343,7 @@ export const apiService = {
       return { ok: true, data: responsePayload.data }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
-        return { ok: false, message: 'El backend tardó en responder. Intenta nuevamente en unos segundos.' }
+        return { ok: false, message: 'El backend tardó en responder tras reintento automático. Intenta nuevamente en unos segundos.' }
       }
       return { ok: false, message: 'Sin conexión con backend' }
     }
