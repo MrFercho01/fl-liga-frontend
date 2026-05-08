@@ -1013,7 +1013,7 @@ export const apiService = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(player),
-      })
+      }, 120_000)
 
       if (!response.ok) {
         const payload = (await response.json()) as { message?: string }
@@ -1022,7 +1022,10 @@ export const apiService = {
 
       const payload = (await response.json()) as { data: RegisteredTeam }
       return { ok: true, data: payload.data }
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return { ok: false, message: 'El backend tardó en responder (Render en reposo). Intenta nuevamente en unos segundos.' }
+      }
       return { ok: false, message: 'Sin conexión con backend' }
     }
   },
