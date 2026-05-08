@@ -4914,7 +4914,13 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                             ) : (
                               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-white/50 bg-white/20 text-[10px] font-bold">EQ</div>
                             )}
-                            <p className="min-w-0 flex-1 whitespace-normal break-words text-[13px] font-semibold leading-tight">
+                            <p className={`min-w-0 flex-1 whitespace-normal break-words font-semibold leading-tight ${
+                              digitalCardTeam.name.length > 25 
+                                ? 'text-[10px]' 
+                                : digitalCardTeam.name.length > 18 
+                                ? 'text-[11px]' 
+                                : 'text-[13px]'
+                            }`}>
                               {digitalCardTeam.name}
                             </p>
                             <div className="shrink-0 rounded border border-white/40 bg-white p-0.5 text-slate-900">
