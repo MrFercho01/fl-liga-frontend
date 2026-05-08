@@ -494,6 +494,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   const [teamSaveMsg, setTeamSaveMsg] = useState<Record<string, { text: string; ok: boolean }>>({})
   const [teamSavingById, setTeamSavingById] = useState<Record<string, boolean>>({})
   const [playerSaveMsg, setPlayerSaveMsg] = useState<Record<string, { text: string; ok: boolean }>>({})
+  const [playerSavingById, setPlayerSavingById] = useState<Record<string, boolean>>({})
   const [playerAddFeedbackByTeam, setPlayerAddFeedbackByTeam] = useState<Record<string, { text: string; ok: boolean }>>({})
   const [playerAddingByTeam, setPlayerAddingByTeam] = useState<Record<string, boolean>>({})
   const [playerEditById, setPlayerEditById] = useState<Record<string, PlayerDraft>>({})
@@ -2852,36 +2853,48 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
   }
 
   const savePlayerEdit = async (teamId: string, playerId: string, currentPlayer: PlayerDraft) => {
+    const saveKey = `${teamId}:${playerId}`
     if (isReadOnlySeason) {
-      showPlayerMsg(`${teamId}:${playerId}`, 'Temporada histórica: solo lectura', false)
+      showPlayerMsg(saveKey, 'Temporada histórica: solo lectura', false)
       return
     }
 
-    const payload = playerEditById[`${teamId}:${playerId}`] ?? currentPlayer
-
-    const response = await apiService.updatePlayer(teamId, playerId, {
-      name: payload.name,
-      nickname: payload.nickname,
-      age: payload.age,
-      number: payload.number,
-      position: normalizePosition(payload.position),
-      registrationStatus: payload.registrationStatus,
-      photoUrl: payload.photoUrl || undefined,
-    })
-
-    if (!response.ok) {
-      showPlayerMsg(`${teamId}:${playerId}`, response.message || 'Error al guardar', false)
+    if (playerSavingById[saveKey]) {
       return
     }
 
-    showPlayerMsg(`${teamId}:${playerId}`, '✓ Guardado', true)
-    setPlayerEditById((current) => {
-      const next = { ...current }
-      delete next[`${teamId}:${playerId}`]
-      return next
-    })
-    // Actualizar directamente el equipo en el array con la respuesta del backend
-    setTeams((current) => current.map((t) => t.id === teamId ? response.data : t))
+    const payload = playerEditById[saveKey] ?? currentPlayer
+
+    setPlayerSavingById((current) => ({ ...current, [saveKey]: true }))
+
+    try {
+      const response = await apiService.updatePlayer(teamId, playerId, {
+        name: payload.name,
+        nickname: payload.nickname,
+        age: payload.age,
+        number: payload.number,
+        position: normalizePosition(payload.position),
+        registrationStatus: payload.registrationStatus,
+        photoUrl: payload.photoUrl || undefined,
+      })
+
+      if (!response.ok) {
+        showPlayerMsg(saveKey, response.message || 'Error al guardar', false)
+        return
+      }
+
+      showPlayerMsg(saveKey, 'Registro actualizado', true)
+      setPlayerEditById((current) => {
+        const next = { ...current }
+        delete next[saveKey]
+        return next
+      })
+      // Actualizar directamente el equipo en el array con la respuesta del backend
+      setTeams((current) => current.map((t) => (t.id === teamId ? response.data : t)))
+      await loadTeams(true)
+    } finally {
+      setPlayerSavingById((current) => ({ ...current, [saveKey]: false }))
+    }
   }
 
   const requestDeleteLeagueByCard = (league: League) => {
@@ -4645,7 +4658,14 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                               <td className="p-2 align-middle">
                                 <div className="flex flex-col items-center gap-1">
                                   <div className="flex items-center gap-1">
-                                    <button type="button" disabled={isReadOnlySeason} onClick={() => void savePlayerEdit(selectedTeam.id, player.id, draft)} className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-0.5 text-[10px] font-semibold text-primary-100 hover:bg-primary-500/30 disabled:opacity-60">Guardar</button>
+                                    <button
+                                      type="button"
+                                      disabled={isReadOnlySeason || Boolean(playerSavingById[key])}
+                                      onClick={() => void savePlayerEdit(selectedTeam.id, player.id, draft)}
+                                      className="rounded border border-primary-300/40 bg-primary-500/20 px-2 py-0.5 text-[10px] font-semibold text-primary-100 hover:bg-primary-500/30 disabled:opacity-60"
+                                    >
+                                      {playerSavingById[key] ? 'Guardando...' : 'Guardar'}
+                                    </button>
                                     <button type="button" disabled={isReadOnlySeason} onClick={() => requestDeletePlayer(selectedTeam.id, player.id, player.name)} className="rounded p-1 hover:bg-rose-600/30 disabled:opacity-60 flex items-center justify-center" title="Eliminar"><DeleteIcon className="w-4 h-4 text-rose-300" /></button>
                                   </div>
                                   {playerSaveMsg[key] && (

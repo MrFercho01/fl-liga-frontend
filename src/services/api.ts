@@ -1306,7 +1306,7 @@ export const apiService = {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-      })
+      }, 120_000)
 
       if (!response.ok) {
         const errorPayload = (await response.json()) as { message?: string }
@@ -1315,7 +1315,10 @@ export const apiService = {
 
       const responsePayload = (await response.json()) as { data: RegisteredTeam }
       return { ok: true, data: responsePayload.data }
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return { ok: false, message: 'El backend tardó en responder. Intenta nuevamente en unos segundos.' }
+      }
       return { ok: false, message: 'Sin conexión con backend' }
     }
   },
