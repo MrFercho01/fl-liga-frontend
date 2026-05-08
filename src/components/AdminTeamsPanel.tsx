@@ -328,7 +328,10 @@ const loadImageAsDataUrl = async (src?: string) => {
   if (src.startsWith('data:')) return src
 
   try {
-    const response = await fetch(src)
+    const response = await fetch(src, { 
+      mode: 'cors',
+      credentials: 'omit'
+    })
     if (!response.ok) return ''
     const blob = await response.blob()
 
@@ -437,6 +440,8 @@ const TeamLogo = ({
         <img
           src={logoUrl}
           alt={name}
+          crossOrigin="anonymous"
+          referrerPolicy="no-referrer"
           className="absolute inset-0 h-full w-full bg-white object-contain p-0.5"
           onError={(event) => {
             event.currentTarget.style.display = 'none'
@@ -5746,6 +5751,18 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                       <span className="font-semibold">Campeón detectado: {finalizationPreview.champion.teamName}</span>
                     </div>
                   )}
+
+                  <div className="mt-3 rounded border border-white/10 bg-slate-900/50 p-2">
+                    <p className="text-xs font-semibold text-slate-300">Equipos de la categoría</p>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+                      {teams.map((team) => (
+                        <div key={team.id} className="flex items-center gap-2 rounded border border-white/10 bg-slate-800/60 px-2 py-1.5">
+                          <TeamLogo logoUrl={team.logoUrl} name={team.name} sizeClass="h-6 w-6" />
+                          <span className="min-w-0 truncate text-xs font-medium text-slate-200">{team.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
                   <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
                     <select
