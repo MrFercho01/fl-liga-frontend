@@ -1782,37 +1782,43 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   }, [selectedMatchHistory])
 
   const liveForSelected = useMemo(() => {
-    if (!selectedMatch || !liveMatch) return null
+    if (!selectedMatch) return null
 
-    const direct = liveMatch.homeTeam.id === selectedMatch.homeTeamId && liveMatch.awayTeam.id === selectedMatch.awayTeamId
-    const reverse = liveMatch.homeTeam.id === selectedMatch.awayTeamId && liveMatch.awayTeam.id === selectedMatch.homeTeamId
+    // Buscar el partido en toda la lista de live matches, no solo el primero
+    const matchedLive = liveMatches.find((m) => {
+      const direct = m.homeTeam.id === selectedMatch.homeTeamId && m.awayTeam.id === selectedMatch.awayTeamId
+      const reverse = m.homeTeam.id === selectedMatch.awayTeamId && m.awayTeam.id === selectedMatch.homeTeamId
+      return direct || reverse
+    })
 
-    if (!direct && !reverse) return null
+    if (!matchedLive) return null
+
+    const direct = matchedLive.homeTeam.id === selectedMatch.homeTeamId && matchedLive.awayTeam.id === selectedMatch.awayTeamId
 
     if (direct) {
       return {
-        homeTeam: liveMatch.homeTeam,
-        awayTeam: liveMatch.awayTeam,
-        events: liveMatch.events,
-        status: liveMatch.status,
-        minute: liveMatch.currentMinute,
-        timer: liveMatch.timer,
-        phase: liveMatch.phase,
-        penaltyShootout: liveMatch.penaltyShootout,
+        homeTeam: matchedLive.homeTeam,
+        awayTeam: matchedLive.awayTeam,
+        events: matchedLive.events,
+        status: matchedLive.status,
+        minute: matchedLive.currentMinute,
+        timer: matchedLive.timer,
+        phase: matchedLive.phase,
+        penaltyShootout: matchedLive.penaltyShootout,
       }
     }
 
     return {
-      homeTeam: liveMatch.awayTeam,
-      awayTeam: liveMatch.homeTeam,
-      events: liveMatch.events,
-      status: liveMatch.status,
-      minute: liveMatch.currentMinute,
-      timer: liveMatch.timer,
-      phase: liveMatch.phase,
-      penaltyShootout: liveMatch.penaltyShootout,
+      homeTeam: matchedLive.awayTeam,
+      awayTeam: matchedLive.homeTeam,
+      events: matchedLive.events,
+      status: matchedLive.status,
+      minute: matchedLive.currentMinute,
+      timer: matchedLive.timer,
+      phase: matchedLive.phase,
+      penaltyShootout: matchedLive.penaltyShootout,
     }
-  }, [liveMatch, selectedMatch])
+  }, [liveMatches, selectedMatch])
 
   const liveSelectedStatus = liveForSelected?.status
 
