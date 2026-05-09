@@ -692,7 +692,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   const [selectedRound, setSelectedRound] = useState<number>(1)
   const [selectedMatchId, setSelectedMatchId] = useState('')
   const [fixturePayload, setFixturePayload] = useState<PublicFixturePayload | null>(null)
-  const [liveMatch, setLiveMatch] = useState<LiveMatch | null>(null)
+  const [, setLiveMatch] = useState<LiveMatch | null>(null)
   const [liveMatches, setLiveMatches] = useState<LiveMatch[]>([])
   const [homeLogoPalette, setHomeLogoPalette] = useState<{ logoUrl: string; palette: TeamPalette | null } | null>(null)
   const [awayLogoPalette, setAwayLogoPalette] = useState<{ logoUrl: string; palette: TeamPalette | null } | null>(null)
