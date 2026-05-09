@@ -1,3 +1,8 @@
+  // Detecta si es iOS
+  const isIOS = typeof window !== 'undefined' && /iphone|ipad|ipod/i.test(window.navigator.userAgent)
+  // Detecta si está en modo standalone (PWA)
+  const isInStandaloneMode = typeof window !== 'undefined' && ('standalone' in window.navigator) && (window.navigator.standalone === true)
+
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { io } from 'socket.io-client'
 import { StoreFooter } from './StoreFooter'
@@ -930,6 +935,11 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   const requestNotificationsPermission = useCallback(async (): Promise<boolean> => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
       setNotificationsEnabled(false)
+      pushInAppFollowAlert(
+        'Notificaciones no soportadas',
+        'Tu navegador no soporta notificaciones push.',
+        'warning'
+      )
       return false
     }
 
@@ -940,6 +950,22 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
 
     if (window.Notification.permission === 'denied') {
       setNotificationsEnabled(false)
+      pushInAppFollowAlert(
+        'Permiso denegado',
+        'Has denegado las notificaciones. Actívalas desde los ajustes del navegador.',
+        'warning'
+      )
+      return false
+    }
+
+    // iOS: solo permite pedir permiso si es PWA
+    if (isIOS && !isInStandaloneMode) {
+      pushInAppFollowAlert(
+        'Activa notificaciones en iPhone',
+        'Para recibir notificaciones, instala la app en tu pantalla de inicio ("Agregar a pantalla de inicio") y luego activa las notificaciones cuando se te solicite.',
+        'info'
+      )
+      setNotificationsEnabled(false)
       return false
     }
 
@@ -947,12 +973,24 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       const permission = await window.Notification.requestPermission()
       const granted = permission === 'granted'
       setNotificationsEnabled(granted)
+      if (!granted && isIOS) {
+        pushInAppFollowAlert(
+          'Permiso requerido',
+          'Para recibir notificaciones, acepta el permiso cuando se muestre el mensaje.',
+          'info'
+        )
+      }
       return granted
     } catch {
       setNotificationsEnabled(false)
+      pushInAppFollowAlert(
+        'Error solicitando permiso',
+        'No se pudo solicitar el permiso de notificaciones.',
+        'warning'
+      )
       return false
     }
-  }, [])
+  }, [isIOS, isInStandaloneMode, pushInAppFollowAlert])
 
   /** Suscribe al usuario a Web Push para un partido específico */
   const subscribePushForMatch = useCallback(async (matchId: string): Promise<void> => {
@@ -2294,7 +2332,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       return liveForSelected.events
         .slice()
         .reverse()
-        .filter((event) => event.type === 'goal' || event.type === 'penalty_goal')
+        .filter((event) => event.type === 'goal' || event.type === 'penalty_goal' || event.type === 'own_goal')
         .map((event) => {
           const isHomeTeam = event.teamId === liveForSelected.homeTeam.id
           const team = isHomeTeam ? liveForSelected.homeTeam : liveForSelected.awayTeam
@@ -2309,6 +2347,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
             teamName: team.name,
             playerName,
             isPenalty: event.type === 'penalty_goal',
+            isOwnGoal: event.type === 'own_goal',
             isHomeTeam,
           }
         })
@@ -2321,13 +2360,14 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       teamName: string
       playerName: string
       isPenalty: boolean
+      isOwnGoal: boolean
       isHomeTeam: boolean
     }>
 
     const homeName = selectedMatchHistory.reverse ? selectedMatchHistory.record.awayTeamName : selectedMatchHistory.record.homeTeamName
 
     return selectedMatchHistory.record.events
-      .filter((event) => event.type === 'goal' || event.type === 'penalty_goal')
+      .filter((event) => event.type === 'goal' || event.type === 'penalty_goal' || event.type === 'own_goal')
       .map((event, index) => {
         const parsedMinute = Number(event.clock.split(':')[0] ?? '0')
         const minute = Number.isFinite(parsedMinute) ? `${parsedMinute}'` : '0\''
@@ -2339,6 +2379,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
           teamName: event.teamName,
           playerName: event.playerName,
           isPenalty: event.type === 'penalty_goal',
+          isOwnGoal: event.type === 'own_goal',
           isHomeTeam: normalizeLabel(event.teamName) === normalizeLabel(homeName),
         }
       })
@@ -3986,7 +4027,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                 <span className="text-[10px] opacity-85">{row.clock}</span>
                               </div>
                               <p className="mt-1 truncate text-[11px] font-semibold">⚽ {row.playerName}</p>
-                              <p className="truncate text-[10px] opacity-90">{row.teamName}{row.isPenalty ? ' · Penal' : ''}</p>
+                              <p className="truncate text-[10px] opacity-90">{row.teamName}{row.isOwnGoal ? ' · Autogol' : row.isPenalty ? ' · Penal' : ''}</p>
                             </div>
                           )
                         })}
@@ -4021,7 +4062,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                     </span>
                                   </td>
                                   <td className="px-2 py-1.5 text-white">{row.playerName}</td>
-                                  <td className="px-2 py-1.5 text-slate-300">{row.isPenalty ? 'Penal' : 'Juego'}</td>
+                                  <td className="px-2 py-1.5 text-slate-300">{row.isOwnGoal ? 'Autogol' : row.isPenalty ? 'Penal' : 'Juego'}</td>
                                 </tr>
                               )
                             })}

@@ -1509,7 +1509,7 @@ export const apiService = {
       const response = await apiFetch(`${apiBaseUrl}/api/admin/leagues/${leagueId}/round-awards?categoryId=${categoryId}`)
       if (!response.ok) {
         const payload = (await response.json()) as { message?: string }
-        return { ok: false, message: payload.message ?? 'No se pudo cargar mejores jugadoras por fecha' }
+        return { ok: false, message: payload.message ?? 'No se pudo cargar mejores jugadores por fecha' }
       }
 
       const payload = (await response.json()) as { data: RoundAwardsEntry[] }
@@ -1540,7 +1540,7 @@ export const apiService = {
 
       if (!response.ok) {
         const errorPayload = (await response.json()) as { message?: string }
-        return { ok: false, message: errorPayload.message ?? 'No se pudo guardar mejores jugadoras de la fecha' }
+        return { ok: false, message: errorPayload.message ?? 'No se pudo guardar mejores jugadores de la fecha' }
       }
 
       const responsePayload = (await response.json()) as { data: RoundAwardsEntry }
@@ -1558,7 +1558,7 @@ export const apiService = {
       const response = await apiFetch(`${apiBaseUrl}/api/admin/leagues/${leagueId}/round-awards-ranking?categoryId=${categoryId}`)
       if (!response.ok) {
         const payload = (await response.json()) as { message?: string }
-        return { ok: false, message: payload.message ?? 'No se pudo cargar ranking de jugadora de la fecha' }
+        return { ok: false, message: payload.message ?? 'No se pudo cargar ranking de jugador de la fecha' }
       }
 
       const payload = (await response.json()) as { data: RoundAwardsRankingEntry[] }

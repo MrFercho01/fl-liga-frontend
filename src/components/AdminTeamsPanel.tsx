@@ -1376,10 +1376,10 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
     const player = team?.players.find((item) => item.id === payload.playerId)
     if (!player) {
-      issues.push('Jugadora del QR no pertenece al equipo/categoría activa.')
+      issues.push('Jugador del QR no pertenece al equipo/categoría activa.')
     } else {
       if (payload.playerName && normalizeLabel(payload.playerName) !== normalizeLabel(player.name)) {
-        issues.push('Nombre de jugadora no coincide con el registro actual.')
+        issues.push('Nombre de jugador no coincide con el registro actual.')
       }
 
       if (typeof payload.number === 'number' && payload.number !== player.number) {
@@ -1400,7 +1400,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       ok: true,
       title: 'Registro OK',
       details: [
-        `${player?.name ?? payload.playerName ?? 'Jugadora'} validada en ${team?.name ?? payload.teamName ?? 'equipo'}.`,
+        `${player?.name ?? payload.playerName ?? 'Jugador'} validado en ${team?.name ?? payload.teamName ?? 'equipo'}.`,
         `Categoría: ${categoryMatch?.name ?? payload.categoryName ?? 'N/D'}.`,
       ],
     })
@@ -2026,7 +2026,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     }
     if (!selectedLeague || !activeCategoryId) return
     if (!leagueMvpFinalPlayerId || !bestGoalkeeperFinalPlayerId || !topScorerFinalPlayerId) {
-      showMessage('Debes seleccionar Jugadora de la liga, Mejor arquera y Goleadora')
+      showMessage('Debes seleccionar Jugador de la liga, Mejor arquera y Goleador')
       return
     }
 
@@ -2101,7 +2101,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       return
     }
     if (mergedActiveRoundMatchBestPlayers.length === 0) {
-      showMessage('Selecciona al menos una mejor jugadora por partido para guardar')
+      showMessage('Selecciona al menos un mejor jugador por partido para guardar')
       return
     }
 
@@ -2139,12 +2139,12 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       setRoundAwardsRanking(rankingResponse.data)
     }
 
-    showMessage(`Mejores jugadoras de Fecha ${activeFixtureRound} guardadas`)
+    showMessage(`Mejores jugadores de Fecha ${activeFixtureRound} guardados`)
   }
 
   const downloadRoundAwardsCardPng = async () => {
     if (!roundAwardsCardRef.current) {
-      showMessage('No hay tarjeta de mejores jugadoras para descargar')
+      showMessage('No hay tarjeta de mejores jugadores para descargar')
       return
     }
 
@@ -2154,13 +2154,13 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
         pixelRatio: 2,
       })
 
-      const fileName = `${(selectedLeague?.name ?? 'liga').replace(/\s+/g, '-').toLowerCase()}-mejores-jugadoras-fecha-${activeFixtureRound}.png`
+      const fileName = `${(selectedLeague?.name ?? 'liga').replace(/\s+/g, '-').toLowerCase()}-mejores-jugadores-fecha-${activeFixtureRound}.png`
       const link = document.createElement('a')
       link.download = fileName
       link.href = dataUrl
       link.click()
     } catch {
-      showMessage('No se pudo generar la imagen de mejores jugadoras')
+      showMessage('No se pudo generar la imagen de mejores jugadores')
     }
   }
 
@@ -2171,13 +2171,13 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     }
 
     if (mergedActiveRoundMatchBestPlayers.length === 0) {
-      showMessage('Primero registra las mejores jugadoras por partido')
+      showMessage('Primero registra los mejores jugadores por partido')
       return
     }
 
     const lines: string[] = []
     lines.push(`${selectedLeague.name} · Temporada ${selectedLeague.season}`)
-    lines.push(`Mejores jugadoras · Fecha ${activeFixtureRound}`)
+    lines.push(`Mejores jugadores · Fecha ${activeFixtureRound}`)
     lines.push('')
 
     mergedActiveRoundMatchBestPlayers.forEach((entry) => {
@@ -2189,7 +2189,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     const roundBestPlayer = mergedRoundBestPlayerOptions.find((item) => item.playerId === mergedActiveRoundBestPlayerId)
     if (roundBestPlayer) {
       lines.push('')
-      lines.push(`⭐ Jugadora de la fecha: ${roundBestPlayer.playerName} (${roundBestPlayer.teamName})`)
+      lines.push(`⭐ Jugador de la fecha: ${roundBestPlayer.playerName} (${roundBestPlayer.teamName})`)
     }
 
     const text = encodeURIComponent(lines.join('\n'))
@@ -2306,7 +2306,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
   const downloadTeamCardsZip = async () => {
     if (!selectedLeague || !digitalCardTeam || digitalCardTeam.players.length === 0) {
-      showMessage('Selecciona un equipo con jugadoras para exportar carnets')
+      showMessage('Selecciona un equipo con jugadores para exportar carnets')
       return
     }
 
@@ -2353,7 +2353,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       link.click()
       URL.revokeObjectURL(downloadUrl)
 
-      showMessage(`Carnets masivos generados: ${targetTeam.players.length} jugadoras`) 
+      showMessage(`Carnets masivos generados: ${targetTeam.players.length} jugadores`) 
     } catch {
       showMessage('No se pudo generar el ZIP masivo de carnets')
     } finally {
@@ -2376,7 +2376,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
     const teamsWithPlayers = teams.filter((team) => team.players.length > 0)
     if (teamsWithPlayers.length === 0) {
-      showMessage('No hay jugadoras registradas para generar carnets masivos')
+      showMessage('No hay jugadores registrados para generar carnets masivos')
       return
     }
 
@@ -2418,7 +2418,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
       link.click()
       URL.revokeObjectURL(downloadUrl)
 
-      showMessage(`Carnets masivos generados: ${exportedCards} jugadoras`) 
+      showMessage(`Carnets masivos generados: ${exportedCards} jugadores`) 
     } catch {
       showMessage('No se pudo generar el ZIP masivo por categoría')
     } finally {
@@ -2657,7 +2657,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
     const targetTeam = teams.find((item) => item.id === teamId)
 
     if (!targetTeam) {
-      showMessage('Equipo no encontrado para registrar jugadora')
+      showMessage('Equipo no encontrado para registrar jugador')
       return
     }
 
@@ -2667,12 +2667,12 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
 
     const atCapacity = targetTeam.players.length >= activeCategoryMaxRegisteredPlayers
     if (atCapacity && !replacementConfig.enabled) {
-      showMessage(`Cupo completo (${activeCategoryMaxRegisteredPlayers}). Activa reemplazo por lesión o elimina una jugadora.`)
+      showMessage(`Cupo completo (${activeCategoryMaxRegisteredPlayers}). Activa reemplazo por lesión o elimina un jugador.`)
       return
     }
 
     if (replacementConfig.enabled && !replacementConfig.replacePlayerId) {
-      showMessage('Selecciona la jugadora lesionada que será reemplazada')
+      showMessage('Selecciona el jugador lesionado que será reemplazado')
       return
     }
 
@@ -4304,7 +4304,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     Equipo: {selectedTeam.name} · Temporada {selectedLeague.season} · identifica jugadores por dorsal y edad.
                   </p>
                   <p className="mt-1 text-xs text-cyan-200">
-                    Cupo categoría: {selectedTeam.players.length}/{activeCategoryMaxRegisteredPlayers} jugadoras registradas
+                    Cupo categoría: {selectedTeam.players.length}/{activeCategoryMaxRegisteredPlayers} jugadores registrados
                   </p>
                   <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                     <input
@@ -4446,7 +4446,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                       }
                       className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <option value="">Selecciona jugadora lesionada</option>
+                      <option value="">Selecciona jugador lesionado</option>
                       {selectedTeam.players.map((player) => (
                         <option key={`replace-${player.id}`} value={player.id}>
                           {player.name} · #{player.number}
@@ -4462,7 +4462,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   >
                     {playerAddingByTeam[selectedTeam.id]
                       ? 'Agregando...'
-                      : ((playerReplacementByTeam[selectedTeam.id]?.enabled ?? false) ? 'Reemplazar jugadora' : 'Agregar jugador')}
+                      : ((playerReplacementByTeam[selectedTeam.id]?.enabled ?? false) ? 'Reemplazar jugador' : 'Agregar jugador')}
                   </button>
                   {playerAddFeedbackByTeam[selectedTeam.id]?.text && (
                     <p className={`mt-2 text-[11px] ${playerAddFeedbackByTeam[selectedTeam.id]?.ok ? 'text-emerald-300' : 'text-red-400'}`}>
@@ -4884,11 +4884,11 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
               </div>
 
               <p className="mt-2 text-[11px] text-slate-400">
-                Si cambian datos de jugadora (foto, dorsal, nombres), vuelve a generar y saldrá actualizado automáticamente.
+                Si cambian datos de jugador (foto, dorsal, nombres), vuelve a generar y saldrá actualizado automáticamente.
               </p>
 
               {!digitalCardTeam || !digitalCardPlayer ? (
-                <p className="mt-3 text-xs text-slate-400">Selecciona equipo y jugadora para previsualizar el carnet.</p>
+                <p className="mt-3 text-xs text-slate-400">Selecciona equipo y jugador para previsualizar el carnet.</p>
               ) : (
                 <div className="mt-4 overflow-x-auto pb-2">
                   <div
@@ -4978,7 +4978,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                         </div>
                       </div>
 
-                      <p className="text-[11px] opacity-95">Escanea para validar registro de jugadora en plantilla titular/suplente.</p>
+                      <p className="text-[11px] opacity-95">Escanea para validar registro de jugador en plantilla titular/suplente.</p>
                     </div>
                   </div>
                 </div>
@@ -5093,7 +5093,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                   {isRefreshingFixture ? 'Actualizando...' : 'Actualizar fixture'}
                 </button>
               </div>
-              <p className="mt-1 text-[11px] text-slate-500">Recarga fixture, agenda y mejores jugadoras desde el backend.</p>
+              <p className="mt-1 text-[11px] text-slate-500">Recarga fixture, agenda y mejores jugadores desde el backend.</p>
 
               <p className="mt-2 text-xs text-slate-400">
                 Liga: {selectedLeague.name} · Temporada {selectedLeague.season} · Total de fechas publicadas: {fixture?.rounds.length ?? 0}.
@@ -5555,8 +5555,8 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
               <div className="mt-3 rounded border border-fuchsia-300/20 bg-fuchsia-900/10 p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-xs font-semibold text-white">Mejores jugadoras por partido · Fecha {activeFixtureRound || '-'}</p>
-                    <p className="mt-1 text-[11px] text-slate-300">Selecciona la mejor jugadora de cada cruce y luego define la jugadora de la fecha.</p>
+                    <p className="text-xs font-semibold text-white">Mejores jugadores por partido · Fecha {activeFixtureRound || '-'}</p>
+                    <p className="mt-1 text-[11px] text-slate-300">Selecciona el mejor jugador de cada cruce y luego define el jugador de la fecha.</p>
                     <p className="mt-1 text-[11px] text-amber-200">Partidos culminados en la fecha: {roundCompletedMatchesCount}/{totalRoundMatches || 0}</p>
                   </div>
                   <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap">
@@ -5581,13 +5581,13 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     <TeamLogo logoUrl={digitalCardLeagueLogoDataUrl || selectedLeague.logoUrl} name={selectedLeague.name} sizeClass="h-10 w-10" />
                     <div>
                       <p className="text-sm font-semibold text-slate-900">{selectedLeague.name}</p>
-                      <p className="text-xs text-slate-600">Mejores jugadoras · Fecha {activeFixtureRound}</p>
+                      <p className="text-xs text-slate-600">Mejores jugadores · Fecha {activeFixtureRound}</p>
                     </div>
                   </div>
 
                   <div className="mt-3 space-y-2">
                     {mergedActiveRoundMatchBestPlayers.length === 0 && (
-                      <p className="text-xs text-slate-500">Aún no hay jugadoras seleccionadas para esta fecha.</p>
+                      <p className="text-xs text-slate-500">Aún no hay jugadores seleccionados para esta fecha.</p>
                     )}
                     {mergedActiveRoundMatchBestPlayers.map((item) => {
                       const homeTeam = teamMap.get(item.homeTeamId)
@@ -5660,7 +5660,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                               MVP
                             </div>
                           )}
-                          <p className="font-semibold">🏅 Jugadora de la fecha: {roundBestPlayer.playerName} ({roundBestPlayer.teamName})</p>
+                          <p className="font-semibold">🏅 Jugador de la fecha: {roundBestPlayer.playerName} ({roundBestPlayer.teamName})</p>
                         </div>
                       </div>
                     )
@@ -5686,7 +5686,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                           }}
                           className="mt-1 w-full rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white"
                         >
-                          <option value="">Selecciona mejor jugadora del partido</option>
+                          <option value="">Selecciona mejor jugador del partido</option>
                           {entry.players.map((player) => (
                             <option key={player.playerId} value={player.playerId}>
                               {player.playerName} · {player.teamName}
@@ -5713,7 +5713,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     }}
                     className="rounded border border-amber-300/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-100"
                   >
-                    <option value="">Selecciona jugadora de la fecha</option>
+                    <option value="">Selecciona jugador de la fecha</option>
                     {mergedRoundBestPlayerOptions.map((item) => {
                       const roundCount = activeRoundMvpCountByPlayerId.get(item.playerId) ?? 1
                       return (
@@ -5730,16 +5730,16 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     onClick={() => void saveRoundAwards()}
                     className="rounded border border-fuchsia-300/40 bg-fuchsia-500/20 px-3 py-1 text-xs font-semibold text-fuchsia-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Guardar mejores jugadoras
+                    Guardar mejores jugadores
                   </button>
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
                   <div className="rounded border border-white/10 bg-slate-900/70 p-2">
-                  <p className="text-xs font-semibold text-white">Top 5 acumulado · Jugadora de la fecha</p>
+                  <p className="text-xs font-semibold text-white">Top 5 acumulado · Jugador de la fecha</p>
                   <div className="mt-2 space-y-1 text-xs">
                     {top5RoundAwardsRanking.length === 0 && (
-                      <p className="text-slate-400">Aún no hay votos guardados de jugadora de la fecha.</p>
+                      <p className="text-slate-400">Aún no hay votos guardados de jugador de la fecha.</p>
                     )}
                     {top5RoundAwardsRanking.map((item, index) => (
                       <p key={item.playerId} className="text-slate-200">
@@ -5805,7 +5805,7 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                       onChange={(event) => setLeagueMvpFinalPlayerId(event.target.value)}
                       className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white"
                     >
-                      <option value="">Jugadora de la liga</option>
+                      <option value="">Jugador de la liga</option>
                       {(finalizationPreview?.leagueMvpCandidates ?? []).map((item) => (
                         <option key={`final-league-mvp-${item.playerId}`} value={item.playerId}>
                           {item.playerName} · {item.teamName} · {item.votes ?? 0} voto(s)

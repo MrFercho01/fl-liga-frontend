@@ -3614,7 +3614,7 @@ function App() {
       })
 
       const leagueSlug = (selectedLeague?.name ?? 'liga').replace(/\s+/g, '-').toLowerCase()
-      const fileName = `${leagueSlug}-top-5-jugadora-fecha-temporada-${activeHistorySeason}.png`
+      const fileName = `${leagueSlug}-top-5-jugador-fecha-temporada-${activeHistorySeason}.png`
 
       const link = document.createElement('a')
       link.download = fileName
@@ -3711,6 +3711,9 @@ function App() {
 
   const startPendingMatchLive = async () => {
     if (!selectedLeague || !activeMatchCategoryId || !selectedPendingMatch) return
+    const wasAlreadyScheduled = adminLiveMatches.some(
+      (match) => match.id === selectedPendingMatch.id && match.status === 'scheduled',
+    )
     if (adminLiveMatches.some((match) => match.id === selectedPendingMatch.id && match.status === 'live')) {
       applyActionFeedback(false, '', 'Este partido ya está en vivo en otra sesión de admin')
       return
@@ -3747,7 +3750,13 @@ function App() {
       })
       // Unirse al room del partido para recibir live:update en tiempo real
       adminSocketRef.current?.emit('join:match', selectedPendingMatch.id)
-      applyActionFeedback(true, 'Partido cargado para iniciar en vivo', '')
+      applyActionFeedback(
+        true,
+        wasAlreadyScheduled
+          ? 'Live recargado con plantilla actual'
+          : 'Partido cargado para iniciar en vivo',
+        '',
+      )
     } finally {
       setIsLoadingLive(false)
     }
@@ -3806,7 +3815,7 @@ function App() {
 
     const selectedMvp = playedMvpCandidates.find((candidate) => candidate.id === selectedMvpPlayerId)
     if (!selectedMvp) {
-      applyActionFeedback(false, '', 'Selecciona un MVP válido entre las jugadoras que participaron')
+      applyActionFeedback(false, '', 'Selecciona un MVP válido entre los jugadores que participaron')
       return false
     }
 
@@ -5296,16 +5305,20 @@ function App() {
                     <button
                       type="button"
                       onClick={() => void startPendingMatchLive()}
-                      disabled={liveLoadedForSelectedPendingScoped || isLoadingLive}
+                      disabled={liveActiveForSelectedPendingScoped || isLoadingLive}
                       className="mt-2 rounded bg-emerald-600 px-3 py-1 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {isLoadingLive ? 'Cargando…' : 'Iniciar y configurar en Live'}
+                      {isLoadingLive
+                        ? 'Cargando…'
+                        : liveLoadedForSelectedPendingScoped
+                          ? 'Recargar live (actualizar inscritos)'
+                          : 'Iniciar y configurar en Live'}
                     </button>
                     {liveLoadedForSelectedPendingScoped && (
                       <p className="mt-1 text-[11px] text-emerald-100/80">
                         {liveActiveForSelectedPendingScoped
                           ? 'Este partido ya está en vivo en otra sesión. Puedes iniciar otro partido en simultáneo.'
-                          : 'Este partido ya está cargado en Live. Finaliza y guarda para moverlo a historial.'}
+                          : 'Este partido ya está cargado en Live. Puedes recargarlo para refrescar inscritos/alineación antes de iniciar.'}
                       </p>
                     )}
                     {liveActiveForSelectedPendingScoped && selectedPendingLiveMatchScoped && (
@@ -7056,10 +7069,10 @@ function App() {
                     </button>
                   </div>
                   <div ref={historyTop5CardRef} className="rounded border border-fuchsia-200/40 bg-slate-900/70 p-3">
-                  <p className="text-sm font-semibold text-white">Top 5 · Jugadora de la fecha (acumulado temporada)</p>
+                  <p className="text-sm font-semibold text-white">Top 5 · Jugador de la fecha (acumulado temporada)</p>
                   <div className="mt-2 space-y-2 text-xs text-slate-200">
                     {roundAwardsRanking.length === 0 && (
-                      <p className="text-slate-400">Aún no hay votos acumulados de jugadora de la fecha.</p>
+                      <p className="text-slate-400">Aún no hay votos acumulados de jugador de la fecha.</p>
                     )}
                     {roundAwardsRanking.slice(0, 5).map((item, index) => (
                       <p key={item.playerId} className="rounded border border-white/10 bg-slate-800 px-2 py-1">
@@ -7325,7 +7338,7 @@ function App() {
                 <input
                   value={mvpSearchTerm}
                   onChange={(event) => setMvpSearchTerm(event.target.value)}
-                  placeholder="Buscar jugadora o equipo..."
+                  placeholder="Buscar jugador o equipo..."
                   className="w-full rounded border border-white/20 bg-slate-800 px-3 py-2 text-xs text-white placeholder:text-slate-400 sm:flex-1"
                 />
                 <span className="rounded border border-white/15 bg-slate-800 px-2 py-1 text-[11px] text-slate-300">
