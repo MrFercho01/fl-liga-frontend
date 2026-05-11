@@ -6,15 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import EditMatchModal from './EditMatchModal'
 import * as XLSX from 'xlsx'
 import { apiBaseUrl, apiService } from '../services/api'
-import type {
-  FixtureResponse,
-  FixtureScheduleEntry,
-  LeagueCategoryResult,
-  LeagueFinalizationPreview,
-  PlayedMatchRecord,
-  RegisteredTeam,
-  RoundAwardsRankingEntry,
-} from '../types/admin.ts'
+import type { FixtureResponse, FixtureScheduleEntry, LeagueCategoryResult, LeagueFinalizationPreview, PlayedMatchRecord, RegisteredTeam, RegisteredPlayer, RoundAwardsRankingEntry } from '../types/admin.ts'
 import type { League } from '../types/league.ts'
 import { DeleteIcon } from './ActionIcons'
 
