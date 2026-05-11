@@ -3729,7 +3729,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                             {line.map((player) => (
                               <div key={player.id} className="min-w-0 text-center">
                                 <div className={`relative mx-auto flex flex-col items-center ${line.length >= 5 ? 'h-14 w-12' : 'h-16 w-14'}`}>
-                                  {player.photoUrl ? (
+                                  {'photoUrl' in player && player.photoUrl ? (
                                     <img
                                       src={player.photoUrl}
                                       alt={player.name}
@@ -3797,7 +3797,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                             {line.map((player) => (
                               <div key={player.id} className="min-w-0 text-center">
                                 <div className={`relative mx-auto flex flex-col items-center ${line.length >= 5 ? 'h-14 w-12' : 'h-16 w-14'}`}>
-                                  {player.photoUrl ? (
+                                  {'photoUrl' in player && player.photoUrl ? (
                                     <img
                                       src={player.photoUrl}
                                       alt={player.name}
