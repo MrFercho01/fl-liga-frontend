@@ -18,7 +18,7 @@ interface Player {
   id: string
   name: string
 }
-interface MatchEditData {
+export interface MatchEditData {
   goals: Goal[]
   lineup: Lineup
   cards: Card[]

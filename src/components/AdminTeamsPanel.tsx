@@ -3,25 +3,10 @@ import JSZip from 'jszip'
 import jsQR from 'jsqr'
 import QRCode from 'qrcode'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import EditMatchModal from './EditMatchModal'
+import EditMatchModal, { MatchEditData } from './EditMatchModal'
 import * as XLSX from 'xlsx'
 import { apiBaseUrl, apiService } from '../services/api'
 import type { FixtureResponse, FixtureScheduleEntry, LeagueCategoryResult, LeagueFinalizationPreview, PlayedMatchRecord, RegisteredTeam, RegisteredPlayer, RoundAwardsRankingEntry } from '../types/admin.ts'
-import type { League } from '../types/league.ts'
-import { DeleteIcon } from './ActionIcons'
-
-
-import * as XLSX from 'xlsx'
-import { apiBaseUrl, apiService } from '../services/api'
-import type {
-  FixtureResponse,
-  FixtureScheduleEntry,
-  LeagueCategoryResult,
-  LeagueFinalizationPreview,
-  PlayedMatchRecord,
-  RegisteredTeam,
-  RoundAwardsRankingEntry,
-} from '../types/admin.ts'
 import type { League } from '../types/league.ts'
 import { DeleteIcon } from './ActionIcons'
 
@@ -613,6 +598,30 @@ export default function AdminTeamsPanel({ leagues, selectedLeague, onLeaguesRelo
   const [videoUploadErrorByMatch, setVideoUploadErrorByMatch] = useState<Record<string, string>>({})
   const teamsRequestSeqRef = useRef(0)
   const fixtureRequestSeqRef = useRef(0)
+
+  // --- Estado y handlers para el modal de edición de partido ---
+  const [editMatchModal, setEditMatchModal] = useState<{ open: boolean; match: PlayedMatchRecord | null }>({ open: false, match: null })
+
+  const handleOpenEditMatch = useCallback((match: PlayedMatchRecord) => {
+    setEditMatchModal({ open: true, match })
+  }, [])
+
+  const handleCloseEditMatch = useCallback(() => {
+    setEditMatchModal({ open: false, match: null })
+  }, [])
+
+  const handleSaveEditMatch = useCallback(async (updated: MatchEditData) => {
+    if (!editMatchModal.match || !selectedLeague || !activeCategoryId) return
+    // Lógica para guardar la edición del partido
+    const response = await apiService.editPlayedMatch(selectedLeague.id, activeCategoryId, editMatchModal.match.matchId, updated)
+    if (response.ok) {
+      showFixtureMessage('Partido actualizado correctamente', true)
+      await loadFixture()
+      setEditMatchModal({ open: false, match: null })
+    } else {
+      showFixtureMessage(response.message, false)
+    }
+  }, [editMatchModal.match, selectedLeague, activeCategoryId, loadFixture])
 
   // --- Estado pestaña Categorías ---
   const [catNameDraft, setCatNameDraft] = useState('')
