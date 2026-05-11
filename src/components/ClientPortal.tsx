@@ -990,7 +990,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
       )
       return false
     }
-  }, [pushInAppFollowAlert])
+  }, [isIOS, isInStandaloneMode, pushInAppFollowAlert])
 
   /** Suscribe al usuario a Web Push para un partido específico */
   const subscribePushForMatch = useCallback(async (matchId: string): Promise<void> => {
