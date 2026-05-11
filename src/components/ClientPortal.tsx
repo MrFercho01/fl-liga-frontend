@@ -3729,25 +3729,12 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                             {line.map((player) => (
                               <div key={player.id} className="min-w-0 text-center">
                                 <div className={`relative mx-auto flex flex-col items-center ${line.length >= 5 ? 'h-14 w-12' : 'h-16 w-14'}`}>
-                                  {'photoUrl' in player && player.photoUrl ? (
-                                    (() => {
-                                      const style = typeof awayPalette.fill === 'string' && awayPalette.fill ? { backgroundColor: awayPalette.fill } : undefined
-                                      return (
-                                        <img
-                                          src={player.photoUrl}
-                                          alt={player.name}
-                                          className={`rounded-full border border-white/80 object-cover ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}
-                                          style={style ? style : undefined}
-                                        />
-                                      )
-                                    })()
-                                  ) : (
-                                    <div
-                                      className={`flex items-center justify-center rounded-full border border-white/80 font-bold bg-slate-700/60 text-slate-100 ${line.length >= 5 ? 'h-8 w-8 text-[11px]' : 'h-9 w-9 text-xs'}`}
-                                    >
-                                      {player.number}
-                                    </div>
-                                  )}
+                                  <img
+                                    src={player.photoUrl}
+                                    alt={player.name}
+                                    className={`rounded-full border border-white/80 object-cover ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}
+                                    style={typeof awayPalette.fill === 'string' && awayPalette.fill ? { backgroundColor: awayPalette.fill } : undefined}
+                                  />
                                   {(() => {
                                     const indicator = playerEventIndicators.get(player.id)
                                     if (!indicator) return null
@@ -3802,25 +3789,12 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                             {line.map((player) => (
                               <div key={player.id} className="min-w-0 text-center">
                                 <div className={`relative mx-auto flex flex-col items-center ${line.length >= 5 ? 'h-14 w-12' : 'h-16 w-14'}`}>
-                                  {'photoUrl' in player && player.photoUrl ? (
-                                    (() => {
-                                      const style = typeof homePalette.fill === 'string' && homePalette.fill ? { backgroundColor: homePalette.fill } : undefined
-                                      return (
-                                        <img
-                                          src={player.photoUrl}
-                                          alt={player.name}
-                                          className={`rounded-full border border-white/80 object-cover ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}
-                                          style={style ? style : undefined}
-                                        />
-                                      )
-                                    })()
-                                  ) : (
-                                    <div
-                                      className={`flex items-center justify-center rounded-full border border-white/80 font-bold bg-slate-700/60 text-slate-100 ${line.length >= 5 ? 'h-8 w-8 text-[11px]' : 'h-9 w-9 text-xs'}`}
-                                    >
-                                      {player.number}
-                                    </div>
-                                  )}
+                                  <img
+                                    src={player.photoUrl}
+                                    alt={player.name}
+                                    className={`rounded-full border border-white/80 object-cover ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}
+                                    style={typeof homePalette.fill === 'string' && homePalette.fill ? { backgroundColor: homePalette.fill } : undefined}
+                                  />
                                   {(() => {
                                     const indicator = playerEventIndicators.get(player.id)
                                     if (!indicator) return null
