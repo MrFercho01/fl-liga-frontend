@@ -3,6 +3,22 @@ import JSZip from 'jszip'
 import jsQR from 'jsqr'
 import QRCode from 'qrcode'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import EditMatchModal from './EditMatchModal'
+import * as XLSX from 'xlsx'
+import { apiBaseUrl, apiService } from '../services/api'
+import type {
+  FixtureResponse,
+  FixtureScheduleEntry,
+  LeagueCategoryResult,
+  LeagueFinalizationPreview,
+  PlayedMatchRecord,
+  RegisteredTeam,
+  RoundAwardsRankingEntry,
+} from '../types/admin.ts'
+import type { League } from '../types/league.ts'
+import { DeleteIcon } from './ActionIcons'
+
+
 import * as XLSX from 'xlsx'
 import { apiBaseUrl, apiService } from '../services/api'
 import type {
@@ -205,6 +221,8 @@ const parseExcelPlayers = (rows: unknown[][], existingNumbers: Set<number>): Bul
 
   return parsed
 }
+
+
 
 const parsePlayersFromImageText = (text: string, existingNumbers: Set<number>): BulkImportPlayerDraft[] => {
   const lines = text
@@ -487,7 +505,7 @@ const TeamLogo = ({
   )
 }
 
-export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLeagueSelect }: AdminTeamsPanelProps) => {
+export default function AdminTeamsPanel({ leagues, selectedLeague, onLeaguesReload, onLeagueSelect }: AdminTeamsPanelProps) {
   const socialCardRef = useRef<HTMLDivElement | null>(null)
   const roundAwardsCardRef = useRef<HTMLDivElement | null>(null)
   const digitalCardRef = useRef<HTMLDivElement | null>(null)
@@ -4334,6 +4352,82 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                     </p>
                   </div>
                   <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-7">
+                                      {/* --- NUEVO BLOQUE: Visualización de alineación/cancha --- */}
+                                      {selectedTeam && selectedTeam.players.length > 0 && (
+                                        <div className="mt-8">
+                                          <h3 className="mb-2 text-sm font-bold text-slate-200">Alineación en cancha</h3>
+                                          <div className="relative mx-auto max-w-2xl rounded-xl border border-emerald-400/30 bg-gradient-to-b from-green-900/60 to-green-800/80 p-4 shadow-lg">
+                                            {/* Renderizar líneas de jugadores según formación (por ahora, layout automático tipo 1-4-4-2 si hay 11, o filas balanceadas) */}
+                                            {(() => {
+                                              // Utilidad para formatear nombre: "8. L. Paz"
+                                              const formatPlayerLabel = (player: RegisteredPlayer) => {
+                                                const dorsal = player.number || ''
+                                                const parts = (player.name || '').trim().split(/\s+/)
+                                                const apellido = parts[0] || ''
+                                                const inicial = parts[1] ? parts[1][0].toUpperCase() : ''
+                                                return `${dorsal ? dorsal + '. ' : ''}${inicial ? inicial + '. ' : ''}${apellido}`.trim()
+                                              }
+
+                                              // Layout: 1-4-4-2 si hay 11, si no, filas balanceadas
+                                              const players = selectedTeam.players.slice().sort((a, b) => a.number - b.number)
+                                              let lines: RegisteredPlayer[][] = []
+                                              if (players.length === 11) {
+                                                lines = [
+                                                  [players[0]], // Portero
+                                                  players.slice(1, 5), // Defensa
+                                                  players.slice(5, 9), // Medio
+                                                  players.slice(9, 11), // Delantera
+                                                ]
+                                              } else {
+                                                // Balancear en 2-4 filas
+                                                const lineCount = players.length > 7 ? 4 : players.length > 4 ? 3 : 2
+                                                const base = Math.floor(players.length / lineCount)
+                                                let remainder = players.length % lineCount
+                                                let cursor = 0
+                                                for (let i = 0; i < lineCount; i++) {
+                                                  const size = base + (remainder > 0 ? 1 : 0)
+                                                  remainder -= remainder > 0 ? 1 : 0
+                                                  lines.push(players.slice(cursor, cursor + size))
+                                                  cursor += size
+                                                }
+                                              }
+
+                                              return (
+                                                <div className="flex flex-col gap-6 py-6 md:gap-8 md:py-8">
+                                                  {lines.map((line, idx) => (
+                                                    <div
+                                                      key={idx}
+                                                      className="flex justify-center gap-2 md:gap-6"
+                                                    >
+                                                      {line.map((player: RegisteredPlayer) => (
+                                                        <div
+                                                          key={player.id}
+                                                          className="flex flex-col items-center w-20 md:w-24"
+                                                        >
+                                                          {player.photoUrl ? (
+                                                            <img
+                                                              src={player.photoUrl}
+                                                              alt={player.name}
+                                                              className="h-12 w-12 md:h-16 md:w-16 rounded-full border-2 border-emerald-300 object-cover bg-slate-200 shadow"
+                                                            />
+                                                          ) : (
+                                                            <div className="h-12 w-12 md:h-16 md:w-16 flex items-center justify-center rounded-full border-2 border-emerald-300 bg-slate-700 text-slate-200 text-lg font-bold">
+                                                              {player.number || '?'}
+                                                            </div>
+                                                          )}
+                                                          <span className="mt-1 text-xs md:text-sm font-semibold text-white text-center whitespace-nowrap drop-shadow">
+                                                            {formatPlayerLabel(player)}
+                                                          </span>
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              )
+                                            })()}
+                                          </div>
+                                        </div>
+                                      )}
                     <input value={(playerDraftByTeam[selectedTeam.id] ?? defaultPlayerDraft).name} onChange={(event) => setPlayerDraftByTeam((current) => ({ ...current, [selectedTeam.id]: { ...(current[selectedTeam.id] ?? defaultPlayerDraft), name: event.target.value } }))} placeholder="Nombre jugador" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
                     <input value={(playerDraftByTeam[selectedTeam.id] ?? defaultPlayerDraft).nickname} onChange={(event) => setPlayerDraftByTeam((current) => ({ ...current, [selectedTeam.id]: { ...(current[selectedTeam.id] ?? defaultPlayerDraft), nickname: event.target.value } }))} placeholder="Apodo" className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white" />
                     <label className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-[11px] text-amber-200">Edad (años)
@@ -5404,11 +5498,48 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                         const form = videoFormByMatch[record.matchId] ?? { file: null, name: '', url: '', mode: 'file' as const }
                         const isUploading = videoUploadingByMatch[record.matchId] ?? false
                         const uploadError = videoUploadErrorByMatch[record.matchId] ?? ''
+                        // Consideramos partido finalizado si tiene goles, eventos o simplemente está en playedMatchesRecords
+                        const isFinalizado = true // Todos los de playedMatchesRecords son finalizados
                         return (
                           <div key={record.matchId} className="rounded border border-white/10 bg-slate-800/50 p-2">
-                            <p className="mb-1 text-xs font-medium text-slate-200">
-                              {record.homeTeamName} {record.homeStats.goals} – {record.awayStats.goals} {record.awayTeamName}
-                            </p>
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="text-xs font-medium text-slate-200">
+                                {record.homeTeamName} {record.homeStats.goals} – {record.awayStats.goals} {record.awayTeamName}
+                              </p>
+                              {isFinalizado && (
+                                <button
+                                  type="button"
+                                  className="rounded border border-emerald-400/40 bg-emerald-600/20 px-2 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-700/30 ml-2"
+                                  onClick={() => handleOpenEditMatch(record)}
+                                >
+                                  Editar
+                                </button>
+                              )}
+                            </div>
+                                  {/* Modal de edición de partido finalizado */}
+                                  {editMatchModal.open && editMatchModal.match && (
+                                    <EditMatchModal
+                                      match={{
+                                        goals: editMatchModal.match.goals?.map((g) => ({
+                                          playerId: editMatchModal.match.players.find((p) => p.playerName === g.playerName)?.playerId || '',
+                                          minute: g.minute,
+                                          type: g.type === 'own_goal' ? 'autogol' : g.type === 'penalty_goal' ? 'penal' : 'gol',
+                                        })) ?? [],
+                                        lineup: {
+                                          home: editMatchModal.match.homeLineup?.starters ?? [],
+                                          away: editMatchModal.match.awayLineup?.starters ?? [],
+                                        },
+                                        cards: editMatchModal.match.events?.filter((e) => e.type === 'yellow' || e.type === 'red' || e.type === 'double_yellow').map((e) => ({
+                                          playerId: e.playerId || '',
+                                          type: e.type === 'yellow' ? 'TA' : 'TR',
+                                          minute: e.clock,
+                                        })) ?? [],
+                                      }}
+                                      players={editMatchModal.match.players.map((p) => ({ id: p.playerId, name: p.playerName }))}
+                                      onSave={handleSaveEditMatch}
+                                      onClose={handleCloseEditMatch}
+                                    />
+                                  )}
                             {record.highlightVideos.length > 0 ? (
                               <div className="mb-2 grid gap-2 md:grid-cols-2">
                                 {record.highlightVideos.map((video) => (
