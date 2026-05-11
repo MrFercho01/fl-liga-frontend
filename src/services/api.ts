@@ -1,21 +1,3 @@
-  /**
-   * Editar partido jugado (goles, alineación, tarjetas, etc.)
-   */
-  editPlayedMatch(leagueId: string, matchId: string, matchData: any): Promise<ApiResponse<any>> {
-    return apiFetch(`${apiBaseUrl}/api/admin/leagues/${leagueId}/played-matches/${matchId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(matchData),
-    })
-      .then(async (response) => {
-        const payload = await response.json()
-        if (!response.ok || !payload.ok) {
-          return { ok: false, message: payload.message ?? 'No se pudo editar el partido' }
-        }
-        return { ok: true, data: payload.data }
-      })
-      .catch(() => ({ ok: false, message: 'Sin conexión con backend' }))
-  },
 import type { League } from '../types/league.ts'
 import type { LiveMatch, LiveSettings, LiveStaffRole, LiveTimerAction } from '../types/live.ts'
 import type { KnockoutBracket, KnockoutFormatOption } from '../types/knockout.ts'
