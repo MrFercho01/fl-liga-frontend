@@ -3737,7 +3737,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                           src={player.photoUrl}
                                           alt={player.name}
                                           className={`rounded-full border border-white/80 object-cover ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}
-                                          {...(style ? { style } : {})}
+                                          style={style ? style : undefined}
                                         />
                                       )
                                     })()
@@ -3810,7 +3810,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                           src={player.photoUrl}
                                           alt={player.name}
                                           className={`rounded-full border border-white/80 object-cover ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}
-                                          {...(style ? { style } : {})}
+                                          style={style ? style : undefined}
                                         />
                                       )
                                     })()
