@@ -3730,12 +3730,17 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                               <div key={player.id} className="min-w-0 text-center">
                                 <div className={`relative mx-auto flex flex-col items-center ${line.length >= 5 ? 'h-14 w-12' : 'h-16 w-14'}`}>
                                   {'photoUrl' in player && player.photoUrl ? (
-                                    <img
-                                      src={player.photoUrl}
-                                      alt={player.name}
-                                      className={`rounded-full border border-white/80 object-cover ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}
-                                      {...(typeof awayPalette.fill === 'string' && awayPalette.fill ? { style: { backgroundColor: awayPalette.fill } } : {})}
-                                    />
+                                    (() => {
+                                      const style = typeof awayPalette.fill === 'string' && awayPalette.fill ? { backgroundColor: awayPalette.fill } : undefined
+                                      return (
+                                        <img
+                                          src={player.photoUrl}
+                                          alt={player.name}
+                                          className={`rounded-full border border-white/80 object-cover ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}
+                                          {...(style ? { style } : {})}
+                                        />
+                                      )
+                                    })()
                                   ) : (
                                     <div
                                       className={`flex items-center justify-center rounded-full border border-white/80 font-bold bg-slate-700/60 text-slate-100 ${line.length >= 5 ? 'h-8 w-8 text-[11px]' : 'h-9 w-9 text-xs'}`}
@@ -3798,12 +3803,17 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                               <div key={player.id} className="min-w-0 text-center">
                                 <div className={`relative mx-auto flex flex-col items-center ${line.length >= 5 ? 'h-14 w-12' : 'h-16 w-14'}`}>
                                   {'photoUrl' in player && player.photoUrl ? (
-                                    <img
-                                      src={player.photoUrl}
-                                      alt={player.name}
-                                      className={`rounded-full border border-white/80 object-cover ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}
-                                      {...(typeof homePalette.fill === 'string' && homePalette.fill ? { style: { backgroundColor: homePalette.fill } } : {})}
-                                    />
+                                    (() => {
+                                      const style = typeof homePalette.fill === 'string' && homePalette.fill ? { backgroundColor: homePalette.fill } : undefined
+                                      return (
+                                        <img
+                                          src={player.photoUrl}
+                                          alt={player.name}
+                                          className={`rounded-full border border-white/80 object-cover ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}
+                                          {...(style ? { style } : {})}
+                                        />
+                                      )
+                                    })()
                                   ) : (
                                     <div
                                       className={`flex items-center justify-center rounded-full border border-white/80 font-bold bg-slate-700/60 text-slate-100 ${line.length >= 5 ? 'h-8 w-8 text-[11px]' : 'h-9 w-9 text-xs'}`}
