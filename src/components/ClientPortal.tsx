@@ -249,17 +249,17 @@ const parseFormationLines = (formationKey?: string) => {
 }
 
 const buildVisualLines = (
-  players: Array<{ id: string; name: string; number: number; position?: string }>,
+  players: Array<{ id: string; name: string; number: number; position?: string; photoUrl?: string }>,
   formationKey?: string,
-) => {
-  if (players.length === 0) return [] as Array<Array<{ id: string; name: string; number: number; position?: string }>>
+): Array<Array<{ id: string; name: string; number: number; position?: string; photoUrl?: string }>> => {
+  if (players.length === 0) return [] as Array<Array<{ id: string; name: string; number: number; position?: string; photoUrl?: string }>>
   if (players.length === 1) return [players]
 
   const ordered = players.slice()
   const parsedFormation = parseFormationLines(formationKey)
 
   if (parsedFormation) {
-    const lines: Array<Array<{ id: string; name: string; number: number; position?: string }>> = []
+    const lines: Array<Array<{ id: string; name: string; number: number; position?: string; photoUrl?: string }>> = []
     let cursor = 0
     parsedFormation.forEach((lineSize) => {
       lines.push(ordered.slice(cursor, cursor + lineSize))
@@ -284,7 +284,7 @@ const buildVisualLines = (
   let remainder = outfield.length % lineCount
   let cursor = 0
 
-  const lines: Array<Array<{ id: string; name: string; number: number; position?: string }>> = [goalkeeper]
+  const lines: Array<Array<{ id: string; name: string; number: number; position?: string; photoUrl?: string }>> = [goalkeeper]
   for (let index = 0; index < lineCount; index += 1) {
     const size = base + (remainder > 0 ? 1 : 0)
     remainder -= remainder > 0 ? 1 : 0
