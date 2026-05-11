@@ -3734,7 +3734,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                       src={player.photoUrl}
                                       alt={player.name}
                                       className={`rounded-full border border-white/80 object-cover ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}
-                                      style={{ backgroundColor: awayPalette.fill }}
+                                      {...(typeof awayPalette.fill === 'string' && awayPalette.fill ? { style: { backgroundColor: awayPalette.fill } } : {})}
                                     />
                                   ) : (
                                     <div
@@ -3802,7 +3802,7 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                       src={player.photoUrl}
                                       alt={player.name}
                                       className={`rounded-full border border-white/80 object-cover ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}
-                                      style={{ backgroundColor: homePalette.fill }}
+                                      {...(typeof homePalette.fill === 'string' && homePalette.fill ? { style: { backgroundColor: homePalette.fill } } : {})}
                                     />
                                   ) : (
                                     <div
