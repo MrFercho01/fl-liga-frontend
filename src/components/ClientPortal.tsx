@@ -3728,17 +3728,24 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                             >
                             {line.map((player) => (
                               <div key={player.id} className="min-w-0 text-center">
-                                <div className={`relative mx-auto ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}>
-                                  <div
-                                    className={`flex items-center justify-center rounded-full border border-white/80 font-bold ${line.length >= 5 ? 'h-8 w-8 text-[11px]' : 'h-9 w-9 text-xs'}`}
-                                    style={{ backgroundColor: awayPalette.fill, color: awayPalette.text }}
-                                  >
-                                    {player.number}
-                                  </div>
+                                <div className={`relative mx-auto flex flex-col items-center ${line.length >= 5 ? 'h-14 w-12' : 'h-16 w-14'}`}>
+                                  {player.photoUrl ? (
+                                    <img
+                                      src={player.photoUrl}
+                                      alt={player.name}
+                                      className={`rounded-full border border-white/80 object-cover ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}
+                                      style={{ backgroundColor: awayPalette.fill }}
+                                    />
+                                  ) : (
+                                    <div
+                                      className={`flex items-center justify-center rounded-full border border-white/80 font-bold bg-slate-700/60 text-slate-100 ${line.length >= 5 ? 'h-8 w-8 text-[11px]' : 'h-9 w-9 text-xs'}`}
+                                    >
+                                      {player.number}
+                                    </div>
+                                  )}
                                   {(() => {
                                     const indicator = playerEventIndicators.get(player.id)
                                     if (!indicator) return null
-
                                     return (
                                       <div className="absolute -right-1 -top-1 flex flex-col items-start gap-0.5">
                                         {indicator.goals > 0 && (
@@ -3764,10 +3771,12 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                       </div>
                                     )
                                   })()}
+                                  <p className={`mt-1 px-0.5 font-semibold leading-tight text-white drop-shadow ${line.length >= 5 ? 'text-[8px]' : line.length === 4 ? 'text-[9px]' : 'text-[10px]'}`}
+                                    style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: line.length >= 5 ? '3.5rem' : '4.5rem' }}
+                                  >
+                                    {player.number}. {formatPitchPlayerName(player.name)}
+                                  </p>
                                 </div>
-                                <p className={`mt-1 px-0.5 font-semibold leading-tight text-white drop-shadow ${line.length >= 5 ? 'text-[8px]' : line.length === 4 ? 'text-[9px]' : 'text-[10px]'}`}>
-                                  {formatPitchPlayerName(player.name)}
-                                </p>
                               </div>
                             ))}
                             </div>
@@ -3787,17 +3796,24 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                             >
                             {line.map((player) => (
                               <div key={player.id} className="min-w-0 text-center">
-                                <div className={`relative mx-auto ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}>
-                                  <div
-                                    className={`flex items-center justify-center rounded-full border border-white/80 font-bold ${line.length >= 5 ? 'h-8 w-8 text-[11px]' : 'h-9 w-9 text-xs'}`}
-                                    style={{ backgroundColor: homePalette.fill, color: homePalette.text }}
-                                  >
-                                    {player.number}
-                                  </div>
+                                <div className={`relative mx-auto flex flex-col items-center ${line.length >= 5 ? 'h-14 w-12' : 'h-16 w-14'}`}>
+                                  {player.photoUrl ? (
+                                    <img
+                                      src={player.photoUrl}
+                                      alt={player.name}
+                                      className={`rounded-full border border-white/80 object-cover ${line.length >= 5 ? 'h-8 w-8' : 'h-9 w-9'}`}
+                                      style={{ backgroundColor: homePalette.fill }}
+                                    />
+                                  ) : (
+                                    <div
+                                      className={`flex items-center justify-center rounded-full border border-white/80 font-bold bg-slate-700/60 text-slate-100 ${line.length >= 5 ? 'h-8 w-8 text-[11px]' : 'h-9 w-9 text-xs'}`}
+                                    >
+                                      {player.number}
+                                    </div>
+                                  )}
                                   {(() => {
                                     const indicator = playerEventIndicators.get(player.id)
                                     if (!indicator) return null
-
                                     return (
                                       <div className="absolute -right-1 -top-1 flex flex-col items-start gap-0.5">
                                         {indicator.goals > 0 && (
@@ -3823,10 +3839,12 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
                                       </div>
                                     )
                                   })()}
+                                  <p className={`mt-1 px-0.5 font-semibold leading-tight text-white drop-shadow ${line.length >= 5 ? 'text-[8px]' : line.length === 4 ? 'text-[9px]' : 'text-[10px]'}`}
+                                    style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: line.length >= 5 ? '3.5rem' : '4.5rem' }}
+                                  >
+                                    {player.number}. {formatPitchPlayerName(player.name)}
+                                  </p>
                                 </div>
-                                <p className={`mt-1 px-0.5 font-semibold leading-tight text-white drop-shadow ${line.length >= 5 ? 'text-[8px]' : line.length === 4 ? 'text-[9px]' : 'text-[10px]'}`}>
-                                  {formatPitchPlayerName(player.name)}
-                                </p>
                               </div>
                             ))}
                             </div>

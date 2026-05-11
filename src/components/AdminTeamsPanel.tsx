@@ -1,3 +1,89 @@
+// Utilidad para formatear el nombre compacto del jugador: "8. L. Diaz"
+const formatPitchPlayerName = (player: { number?: number; name: string }) => {
+  const dorsal = player.number ? `${player.number}. ` : ''
+  const [firstName = '', ...rest] = player.name.trim().split(' ')
+  const lastName = rest.length > 0 ? rest[rest.length - 1] : ''
+  const initial = firstName ? firstName[0].toUpperCase() + '. ' : ''
+  const surname = lastName ? lastName[0].toUpperCase() + lastName.slice(1).toLowerCase() : ''
+  return `${dorsal}${initial}${surname}`.trim()
+}
+
+// Renderiza la "cancha" con los jugadores titulares de ambos equipos
+const PitchLineup = ({ teams }: { teams: RegisteredTeam[] }) => {
+  // Se asume que los titulares son los primeros N jugadores (por ahora no hay campo "isStarter")
+  // Si existe un campo para titulares, reemplazar el filtro aquí
+  const playersOnField = 11 // O configurable según categoría
+  const [home, away] = teams
+  if (!home || !away) return null
+
+  const getTitulares = (team: RegisteredTeam) =>
+    [...team.players]
+      .filter((p) => p.number > 0)
+      .sort((a, b) => a.number - b.number)
+      .slice(0, playersOnField)
+
+  const titularesHome = getTitulares(home)
+  const titularesAway = getTitulares(away)
+
+  return (
+    <div className="my-6 flex flex-col items-center gap-6 md:flex-row md:justify-center">
+      {/* Equipo local */}
+      <div className="flex-1 min-w-[220px] max-w-[340px]">
+        <div className="mb-2 text-center text-xs font-bold text-primary-200">{home.name}</div>
+        <div className="rounded-xl bg-gradient-to-b from-green-900/60 to-green-700/40 p-2 border border-green-900/40">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {titularesHome.map((player) => (
+              <div key={player.id} className="flex flex-col items-center">
+                {player.photoUrl ? (
+                  <img
+                    src={normalizeAssetUrl(player.photoUrl)}
+                    alt={player.name}
+                    className="h-12 w-12 rounded-full object-cover border-2 border-primary-400 bg-white"
+                    onError={(e) => { e.currentTarget.style.display = 'none' }}
+                  />
+                ) : (
+                  <div className="h-12 w-12 flex items-center justify-center rounded-full bg-slate-700 text-white text-lg font-bold border-2 border-primary-400">
+                    {player.number || '?'}
+                  </div>
+                )}
+                <span className="mt-1 text-[11px] text-center text-white font-semibold drop-shadow-sm">
+                  {formatPitchPlayerName(player)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      {/* Equipo visitante */}
+      <div className="flex-1 min-w-[220px] max-w-[340px]">
+        <div className="mb-2 text-center text-xs font-bold text-primary-200">{away.name}</div>
+        <div className="rounded-xl bg-gradient-to-b from-green-900/60 to-green-700/40 p-2 border border-green-900/40">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {titularesAway.map((player) => (
+              <div key={player.id} className="flex flex-col items-center">
+                {player.photoUrl ? (
+                  <img
+                    src={normalizeAssetUrl(player.photoUrl)}
+                    alt={player.name}
+                    className="h-12 w-12 rounded-full object-cover border-2 border-primary-400 bg-white"
+                    onError={(e) => { e.currentTarget.style.display = 'none' }}
+                  />
+                ) : (
+                  <div className="h-12 w-12 flex items-center justify-center rounded-full bg-slate-700 text-white text-lg font-bold border-2 border-primary-400">
+                    {player.number || '?'}
+                  </div>
+                )}
+                <span className="mt-1 text-[11px] text-center text-white font-semibold drop-shadow-sm">
+                  {formatPitchPlayerName(player)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 import { toPng } from 'html-to-image'
 import JSZip from 'jszip'
 import jsQR from 'jsqr'
@@ -3892,6 +3978,10 @@ export const AdminTeamsPanel = ({ leagues, selectedLeague, onLeaguesReload, onLe
                 <p className="mb-2 rounded border border-amber-300/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-200">
                   Temporada {selectedLeague.season} en modo lectura.
                 </p>
+              )}
+              {/* Cancha con titulares de los dos primeros equipos activos */}
+              {filteredTeams.length >= 2 && (
+                <PitchLineup teams={filteredTeams.slice(0, 2)} />
               )}
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-12">
                 <select
