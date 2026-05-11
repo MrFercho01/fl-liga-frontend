@@ -2603,12 +2603,33 @@ export const ClientPortal = ({ clientId }: ClientPortalProps) => {
   )
 
   const awayVisualLines = useMemo(
-    () => (awayLineup ? buildVisualLines(awayLineup.starters, awayLineup.formationKey) : []),
+    () => {
+      if (!awayLineup) return []
+      // Mapear para asegurar que cada jugador tenga photoUrl
+      const startersWithPhoto = awayLineup.starters.map((p): LineupPlayer => ({
+        id: p.id,
+        name: p.name,
+        number: p.number,
+        position: p.position,
+        photoUrl: 'photoUrl' in p ? (p as LineupPlayer).photoUrl : undefined,
+      }))
+      return buildVisualLines(startersWithPhoto, awayLineup.formationKey)
+    },
     [awayLineup],
   )
 
   const homeVisualLines = useMemo(
-    () => (homeLineup ? buildVisualLines(homeLineup.starters, homeLineup.formationKey).slice().reverse() : []),
+    () => {
+      if (!homeLineup) return []
+      const startersWithPhoto = homeLineup.starters.map((p): LineupPlayer => ({
+        id: p.id,
+        name: p.name,
+        number: p.number,
+        position: p.position,
+        photoUrl: 'photoUrl' in p ? (p as LineupPlayer).photoUrl : undefined,
+      }))
+      return buildVisualLines(startersWithPhoto, homeLineup.formationKey).slice().reverse()
+    },
     [homeLineup],
   )
 
